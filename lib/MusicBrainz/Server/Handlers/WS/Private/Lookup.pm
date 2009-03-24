@@ -20,38 +20,38 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #
-#   $Id$
+#   $Id: Lookup.pm 10691 2008-11-13 09:55:31Z robert $
 #____________________________________________________________________________
 
 use strict;
 
 package MusicBrainz::Server::Handlers::WS::Private::Lookup;
 
-use Apache::Constants qw( );
+use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use Apache::File ();
 use JSON;
 use Encode;
 
 sub handler
 {
-	my ($r) = @_;
+	my ($c) = @_;
 
 	# URLs are of the form:
 	# http://server/ws/data/lookup?entitytype=[artist|album|track|label]&query=querystring&callid=[0-9]
 
 	# only accept get requests, and requests which match
 	# the definition of the handler in vh_httpd.conf
-	return bad_req($r, "Only GET is acceptable")
+	return bad_req($c, "Only GET is acceptable")
 		unless $r->method eq "GET";
-	return bad_req($r, "uri contains extra components")
-		unless $r->uri eq "/ws/priv/lookup";
+	return bad_req($c, "uri contains extra components")
+		unless $r->path eq "/ws/priv/lookup";
 
-	my %args; { no warnings; %args = $r->args };
+	
 
 	# extract the arguments from the args hash.
-	my $entitytype = $args{"entitytype"};
-	my $query = $args{"query"};
-	my $callid = $args{"callid"} || 0;
+	my $entitytype = $r->params->{"entitytype"};
+	my $query = $r->params->{"query"};
+	my $callid = $r->params->{"callid"} || 0;
 
 	# entitytype has to be specified and is either artist|album|label|track
 	$entitytype = (
@@ -60,14 +60,14 @@ sub handler
 	);
 	unless (defined $entitytype)
 	{
-		return bad_req($r, "Missing/Wrong Parameter: entitytype=[artist|album|label|track]");
+		return bad_req($c, "Missing/Wrong Parameter: entitytype=[artist|album|label|track]");
 	}
 	
 	# query has to be specified and cannot be an empty string ""
 	if (not defined $query or
 		$query eq "")
 	{
-		return bad_req($r, "Missing/Wrong Parameter: query=[non-emtpy string]");
+		return bad_req($c, "Missing/Wrong Parameter: query=[non-emtpy string]");
 	}
 
 	eval {
@@ -79,35 +79,35 @@ sub handler
 #	if ($@)
 #	{
 #		my $error = "$@";
-#		$r->status(Apache::Constants::SERVER_ERROR());
-#		$r->send_http_header("text/plain; charset=utf-8");
-#		$r->print($error."\015\012") unless $r->header_only;
-#		return Apache::Constants::OK();
+#		$c->response->status(RC_INTERNAL_SERVER_ERROR);
+#		$c->response->header("text/plain; charset=utf-8");
+#		$c->response->body($error."\015\012"); # unless $r->header_only;
+#		return RC_OK;
 #	}
 #
 #	# Damn.
-#	return Apache::Constants::SERVER_ERROR();
+#	return RC_INTERNAL_SERVER_ERROR;
 }
 
 sub bad_req
 {
-	my ($r, $error) = @_;
-	$r->status(Apache::Constants::BAD_REQUEST());
-	$r->send_http_header("text/plain; charset=utf-8");
-	$r->print($error."\015\012") unless $r->header_only;
-	return Apache::Constants::OK();
+	my ($c, $error) = @_;
+	$c->response->status(RC_BAD_REQUEST);
+	$c->response->header("text/plain; charset=utf-8");
+	$c->response->body($error."\015\012"); # unless $r->header_only;
+	return RC_OK;
 }
 
 sub serve_from_db
 {
-	my ($r, $entitytype, $query, $callid) = @_;
+	my ($c, $entitytype, $query, $callid) = @_;
 
 	require MusicBrainz;
 	my $mb = MusicBrainz->new;
 	$mb->Login;
 
 	# retrieve the list of entitiesmatching the query $query
-	my $engine = SearchEngine->new($mb->{dbh}, $entitytype);
+	my $engine = SearchEngine->new($mb->{DBH}, $entitytype);
 	$engine->Search(
 		query => $query,
 		limit => 0,
@@ -220,11 +220,11 @@ sub serve_from_db
 	
 	# the content type should be application/json, but
 	# Opera 8 can't handle that :(
-	$r->send_http_header("text/plain; charset=utf-8");
-	$r->set_content_length(length($js));
-	$r->print($js) unless $r->header_only;
+	$c->response->header("text/plain; charset=utf-8");
+	$c->response->content_length(length($js));
+	$c->response->body($js); # unless $r->header_only;
 
-	return Apache::Constants::OK();
+	return RC_OK;
 }
 
 1;

@@ -20,52 +20,61 @@
 #   along with this program; if not, write to the Free Software
 #   Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #
-#   $Id$
+#   $Id: Auth.pm 10654 2008-11-07 02:39:07Z robert $
 #____________________________________________________________________________
 
 use strict;
 
 package MusicBrainz::Server::Handlers::WS::1::Auth;
 
-use Apache::Constants qw( OK AUTH_REQUIRED SERVER_ERROR NOT_FOUND FORBIDDEN);
-use Apache::File ();
-use Apache::AuthDigest::API;
+use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use Digest::MD5 qw(md5_hex);
+use MusicBrainz::Server::Handlers::WS::1::Common qw( :DEFAULT apply_rate_limit );
 
 sub handler
 {
     my $r = Apache::AuthDigest::API->new(shift);
+    
+    my ($inc) = convert_inc($r->params->{inc});
 
-    # Track GET operations do not need to be auth'ed -- pass em along.
-    return OK if ($r->method eq "GET" && $r->uri =~ /^\/ws\/1\/track/);
+    # Artist, Label, Release & Track in GET mode don't require authentication
+    # unless user data (tags, ratings) are requested
+    return OK if($r->method eq "GET" 
+        && $r->path =~ /^\/ws\/1\/(artist|label|release|track)/
+        && not ($inc & INC_USER_TAGS)
+        && not ($inc & INC_USER_RATINGS) );
+    
+    # Allow POSTing CDStubs to release
+    return OK if($r->method eq "POST" 
+        && $r->path =~ /^\/ws\/1\/release/);
 
     my ($status, $response) = $r->get_digest_auth_response;
-    return $status unless $status == OK;
+    return $status unless $status == RC_OK;
 
     my $realm = $r->dir_config("DigestRealm");
 
     require MusicBrainz;
     my $mb = MusicBrainz->new;
-	$mb->Login(db => 'READWRITE');
+    $mb->Login(db => 'READWRITE');
 
-    require MusicBrainz::Server::Editor;
-    my $us = MusicBrainz::Server::Editor->new($mb->{dbh});
+    require UserStuff;
+    my $us = UserStuff->new($mb->{DBH});
     if (!($us = $us->newFromName($r->user)))
     {
         #print STDERR "User not found: '$r->user'\n";
         $r->note_digest_auth_failure;
-        return AUTH_REQUIRED;
+        return RC_UNAUTHORIZED;
     }
-    my $digest = md5_hex($r->user.":$realm:".$us->password);
+    my $digest = md5_hex($r->user.":$realm:".$us->GetPassword);
     if (!$r->compare_digest_response($response, $digest))
     {
         #print STDERR "Bad password\n";
         $r->note_digest_auth_failure;
         $r->note_digest_auth_failure;
-        return AUTH_REQUIRED;
+        return RC_UNAUTHORIZED;
     }
 
-	return OK;
+    return RC_OK;
 }
 
 1;

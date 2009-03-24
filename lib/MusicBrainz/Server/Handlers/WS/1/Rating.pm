@@ -4,7 +4,8 @@
 #
 #   MusicBrainz -- the open internet music database
 #
-#   Copyright (C) 2004 Robert Kaye
+#   Copyright (C) 2007 Sharon Myrtle Paradesi
+#   Copyright (C) 2008 Aurelien Mino
 #
 #   This program is free software; you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
@@ -25,15 +26,13 @@
 
 use strict;
 
-package MusicBrainz::Server::Handlers::WS::1::Tag;
+package MusicBrainz::Server::Handlers::WS::1::Rating;
 
 use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use MusicBrainz::Server::Handlers::WS::1::Common;
-use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
-use MusicBrainz::Server::Tag;
-use Data::Dumper;
+use MusicBrainz::Server::Rating;
 
-use constant MAX_TAGS_PER_REQUEST => 20;
+use constant MAX_RATINGS_PER_REQUEST => 20;
 
 sub handler
 {
@@ -41,13 +40,13 @@ sub handler
     my $r = $c->req;
 
     # URLs are of the form:
-    # GET http://server/ws/1/tag/?entity=<entity>&id=<id>
-    # POST http://server/ws/1/tag/?entity=<entity>&id=<id>&tags=<tags>
-    # POST http://server/ws/1/tag/?entity.0=<entity>&id.0=<mbid>&tags.0=<tags>&entity.1=<entity>&id.1=<mbid>&tags.1=<tags>
+    # GET  http://server/ws/1/rating/?entity=<entity>&id=<id>
+    # POST http://server/ws/1/rating/?entity=<entity>&id=<id>&rating=<rating>
+    # POST http://server/ws/1/rating/?entity.0=<entity>&id.0=<mbid>&rating.0=<rating>&entity.1=<entity>&id.1=<mbid>&rating.1=<rating>..
 
     if ($r->method eq "POST")
     {
-        my $entity = $r->params->{"entity.0"};
+        my $entity = $r->params->{'entity.0'};
         return handler_post_multiple($r) if ($entity);
         return handler_post($r);
     }
@@ -98,19 +97,19 @@ sub handler
     return RC_OK;
 }
 
-# handle the old style single entity per POST type of call
 sub handler_post
 {
     my $c = shift;
     my $r = $c->req;
+    my $apr = shift;
 
     # URLs are of the form:
-    # POST http://server/ws/1/tag/?name=<user_name>&entity=<entity>&id=<id>&tags=<tags>
+    # POST http://server/ws/1/rating/?name=<user_name>&entity=<entity>&id=<id>&rating=<rating>
 
     my $user = $r->user;
-    my $entity = $r->params->{entity};
-    my $id = $r->param->{id};
-    my $tags = $r->params->{tags};
+    my $entity = $apr->param('entity');
+    my $id = $apr->param('id');
+    my $rating = $apr->param('rating');
 
     if (!MusicBrainz::Server::Validation::IsGUID($id) || 
         ($entity ne 'artist' && $entity ne 'release' && $entity ne 'track' && $entity ne 'label'))
@@ -118,24 +117,17 @@ sub handler_post
         return bad_req($c, "Invalid MBID/entity.");
     }
 
-    # Ensure that the login name is the same as the resource requested 
-    if ($r->user ne $user)
-    {
-        $c->response->status(RC_FORBIDDEN);
-        return RC_FORBIDDEN;
-    }
-
     # Ensure that we're not a replicated server and that we were given a client version
     if (&DBDefs::REPLICATION_TYPE == &DBDefs::RT_SLAVE)
     {
-        return bad_req($c, "You cannot submit tags to a slave server.");
+        return bad_req($c, "You cannot submit ratings to a slave server.");
     }
 
     my $status = eval 
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($r, $user, [{ entity => $entity, id => $id, tags => $tags}]);
+            my $status = serve_from_db_post($r, $user, [{entity => $entity, id => $id, rating => $rating}]);
             return $status if defined $status;
         }
         undef;
@@ -166,7 +158,7 @@ sub handler_post_multiple
     my $r = $c->req;
 
     # URLs are of the form:
-    # POST http://server/ws/1/tag/?entity.0=<entity>&id.0=<mbid>&tags.0=<tags>&entity.1=<entity>&id.1=<mbid>&tags.1=<tags>
+    # POST http://server/ws/1/rating/?entity.0=<entity>&id.0=<mbid>&rating.0=<rating>&entity.1=<entity>&id.1=<mbid>&rating.1=<rating>..
 
     my $user = $r->user;
     my @batch;
@@ -181,32 +173,32 @@ sub handler_post_multiple
     # Ensure that we're not a replicated server and that we were given a client version
     if (&DBDefs::REPLICATION_TYPE == &DBDefs::RT_SLAVE)
     {
-        return bad_req($c, "You cannot submit tags to a slave server.");
+        return bad_req($c, "You cannot submit ratings to a slave server.");
     }
 
-    my ($entity, $id, $tags, $count);
+    my ($entity, $id, $rating, $count);
     for($count = 0;; $count++)
     {
         my $entity = $r->params->{"entity.$count"};
         my $id = $r->params->{"id.$count"};
-        my $tags = $r->params->{"tags.$count"};
+        my $rating = $r->params->{"rating.$count"};
 
-        last if (!$entity || !$id || !$tags);
+        last if (not defined $entity || not defined $id || not defined $rating);
 
         if (!MusicBrainz::Server::Validation::IsGUID($id) || 
             ($entity ne 'artist' && $entity ne 'release' && $entity ne 'track' && $entity ne 'label'))
         {
             return bad_req($c, "Invalid MBID/entity for set $count.");
         }
-        push @batch, { entity => $entity, id => $id, tags => $tags };
+        push @batch, { entity => $entity, id => $id, rating => $rating };
     }
     if (!$count)
     {
-        return bad_req($c, "No valid tags were specified in this request.");
+        return bad_req($c, "No valid ratings were specified in this request.");
     }
-    if ($count > MAX_TAGS_PER_REQUEST)
+    if ($count > MAX_RATINGS_PER_REQUEST)
     {
-        return bad_req($c, "Too many tags for one request. Max " . MAX_TAGS_PER_REQUEST . " tags per request.");
+        return bad_req($c, "Too many ratings for one request. Max " . MAX_RATINGS_PER_REQUEST . " ratings per request.");
     }
 
     my $status = eval 
@@ -239,21 +231,20 @@ sub handler_post_multiple
 
 sub serve_from_db_post
 {
-    my ($c, $user, $tags) = @_;
+    my ($c, $user, $ratings) = @_;
 
     my $printer = sub {
-        print_xml_post($c, $user, $tags);
+        process_user_input($c, $user, $ratings);
     };
 
     send_response($c, $printer);
     return RC_OK;
 }
 
-sub print_xml_post
+sub process_user_input
 {
-    my ($c, $user, $tags) = @_;
+    my ($c, $user, $ratings) = @_;
 
-    # Login to the tags DB
     require MusicBrainz;
     my $mb = MusicBrainz->new;
     $mb->Login();
@@ -270,34 +261,33 @@ sub print_xml_post
     require MusicBrainz::Server::Label;
     require MusicBrainz::Server::Track;
 
-    my $obj;
-
-    foreach my $tag (@{$tags})
+    my ($obj, $count);
+    foreach my $rating (@{$ratings})
     {
-        if ($tag->{entity} eq 'artist')
+        if ($rating->{entity} eq 'artist')
         {
             $obj = MusicBrainz::Server::Artist->new($sql->{DBH});
         }
-        elsif ($tag->{entity} eq 'release')
+        elsif ($rating->{entity} eq 'release')
         {
             $obj = MusicBrainz::Server::Release->new($sql->{DBH});
         }
-        elsif ($tag->{entity} eq 'track')
+        elsif ($rating->{entity} eq 'track')
         {
             $obj = MusicBrainz::Server::Track->new($sql->{DBH});
         }
-        elsif ($tag->{entity} eq 'label')
+        elsif ($rating->{entity} eq 'label')
         {
             $obj = MusicBrainz::Server::Label->new($sql->{DBH});
         }
-        $obj->SetMBId($tag->{id});
+        $obj->SetMBId($rating->{id});
         unless ($obj->LoadFromId)
         {
-            return bad_req($c, "Cannot load " . $tag->{entity} . ' ' . $tag->{id} . ". Bad entity id given?");
+            return bad_req($c, "Cannot load " . $rating->{entity} . ' ' . $rating->{id} . ". Bad entity id given?");
         } 
 
-        my $t = MusicBrainz::Server::Tag->new($mb->{DBH});
-        $t->Update($tag->{tags}, $us->GetId, $tag->{entity}, $obj->GetId);
+        my $ratings = MusicBrainz::Server::Rating->new($mb->{DBH});
+        $ratings->Update($rating->{entity}, $obj->GetId, $us->GetId, $rating->{rating});
     }
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
@@ -342,14 +332,14 @@ sub serve_from_db
     $obj->SetMBId($entity_id);
     unless ($obj->LoadFromId)
     {
-        die "Cannot load entity. Bad entity id given?"
+        return bad_req($c, "Cannot load $entity_type $entity_id. Bad entity id given?");
     }
 
-    my $tag = MusicBrainz::Server::Tag->new($maindb->{DBH});
-    my $tags = $tag->GetRawTagsForEntity($entity_type, $obj->GetId, $user->GetId);
+    my $rt = MusicBrainz::Server::Rating->new($maindb->{DBH});
+    my $rating = $rt->GetUserRatingForEntity($entity_type, $obj->GetId, $user->GetId);
 
     my $printer = sub {
-        print_xml($tags);
+        print_xml($rating);
     };
 
     send_response($c, $printer);
@@ -358,18 +348,13 @@ sub serve_from_db
 
 sub print_xml
 {
-    my ($tags) = @_;
+    my ($rating) = @_;
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
     print '<metadata xmlns="http://musicbrainz.org/ns/mmd-1.0#">';
-    print '<tag-list>' if (scalar(@$tags) > 1);
-    foreach my $t (@$tags)
-    {
-        print '<tag>' . xml_escape($t->{name}) . '</tag>';
-    }
-    print '</tag-list>' if (scalar(@$tags) > 1);
+    print '<user-rating>'. $rating .'</user-rating>' if ($rating);
     print '</metadata>';
 }
 
 1;
-# eof Tag.pm
+# eof Rating.pm

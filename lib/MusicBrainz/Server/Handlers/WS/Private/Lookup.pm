@@ -35,6 +35,7 @@ use Encode;
 sub handler
 {
 	my ($c) = @_;
+    my $r = $c->req;
 
 	# URLs are of the form:
 	# http://server/ws/data/lookup?entitytype=[artist|album|track|label]&query=querystring&callid=[0-9]
@@ -45,8 +46,6 @@ sub handler
 		unless $r->method eq "GET";
 	return bad_req($c, "uri contains extra components")
 		unless $r->path eq "/ws/priv/lookup";
-
-	
 
 	# extract the arguments from the args hash.
 	my $entitytype = $r->params->{"entitytype"};

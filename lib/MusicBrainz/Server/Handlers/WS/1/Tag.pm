@@ -31,7 +31,7 @@ use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR R
 use MusicBrainz::Server::Handlers::WS::1::Common;
 use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use MusicBrainz::Server::Tag;
-use Data::Dumper;
+use MusicBrainz::Server::Editor;
 
 use constant MAX_TAGS_PER_REQUEST => 20;
 
@@ -48,14 +48,18 @@ sub handler
     if ($r->method eq "POST")
     {
         my $entity = $r->params->{"entity.0"};
-        return handler_post_multiple($r) if ($entity);
-        return handler_post($r);
+        return handler_post_multiple($c) if ($entity);
+        return handler_post($c);
     }
 
     return bad_req($c, "Only GET or POST is acceptable")
         unless $r->method eq "GET";
 
     my $user = $r->user;
+    if (!defined($user) || !$user)
+    {
+        return bad_req($c, "A valid username must be provided to retrieve tags.");
+    }
     my $name = $r->params->{name};
     my $entity = $r->params->{entity};
     my $id = $r->params->{id};
@@ -75,7 +79,7 @@ sub handler
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $user, $entity, $id);
+            my $status = serve_from_db($c, $user, $entity, $id);
             return $status if defined $status;
         }
         undef;
@@ -135,7 +139,7 @@ sub handler_post
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($r, $user, [{ entity => $entity, id => $id, tags => $tags}]);
+            my $status = serve_from_db_post($c, $user, [{ entity => $entity, id => $id, tags => $tags}]);
             return $status if defined $status;
         }
         undef;
@@ -213,7 +217,7 @@ sub handler_post_multiple
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($r, $user, \@batch);
+            my $status = serve_from_db_post($c, $user, \@batch);
             return $status if defined $status;
         }
         undef;
@@ -258,12 +262,12 @@ sub print_xml_post
     my $mb = MusicBrainz->new;
     $mb->Login();
 
-    require UserStuff;
-    my $us = UserStuff->new($mb->{DBH});
+    require MusicBrainz::Server::Editor;
+    my $us = MusicBrainz::Server::Editor->new($mb->{dbh});
     $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     require Sql;
-    my $sql = Sql->new($mb->{DBH});
+    my $sql = Sql->new($mb->{dbh});
 
     require MusicBrainz::Server::Artist;
     require MusicBrainz::Server::Release;
@@ -276,27 +280,27 @@ sub print_xml_post
     {
         if ($tag->{entity} eq 'artist')
         {
-            $obj = MusicBrainz::Server::Artist->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Artist->new($sql->{dbh});
         }
         elsif ($tag->{entity} eq 'release')
         {
-            $obj = MusicBrainz::Server::Release->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Release->new($sql->{dbh});
         }
         elsif ($tag->{entity} eq 'track')
         {
-            $obj = MusicBrainz::Server::Track->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Track->new($sql->{dbh});
         }
         elsif ($tag->{entity} eq 'label')
         {
-            $obj = MusicBrainz::Server::Label->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Label->new($sql->{dbh});
         }
-        $obj->SetMBId($tag->{id});
+        $obj->mbid($tag->{id});
         unless ($obj->LoadFromId)
         {
             return bad_req($c, "Cannot load " . $tag->{entity} . ' ' . $tag->{id} . ". Bad entity id given?");
         } 
 
-        my $t = MusicBrainz::Server::Tag->new($mb->{DBH});
+        my $t = MusicBrainz::Server::Tag->new($mb->{dbh});
         $t->Update($tag->{tags}, $us->GetId, $tag->{entity}, $obj->GetId);
     }
 
@@ -311,10 +315,10 @@ sub serve_from_db
     # Login to the main DB
     my $main = MusicBrainz->new;
     $main->Login();
-    my $maindb = Sql->new($main->{DBH});
+    my $maindb = Sql->new($main->{dbh});
 
-    require UserStuff;
-    my $user = UserStuff->new($maindb->{DBH});
+    require MusicBrainz::Server::Editor;
+    my $user = MusicBrainz::Server::Editor->new($maindb->{dbh});
     $user = $user->newFromName($user_name) or die "Cannot load user.\n";
 
     require MusicBrainz::Server::Artist;
@@ -325,27 +329,27 @@ sub serve_from_db
     my $obj;
     if ($entity_type eq 'artist')
     {
-        $obj = MusicBrainz::Server::Artist->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Artist->new($maindb->{dbh});
     }
     elsif ($entity_type eq 'release')
     {
-        $obj = MusicBrainz::Server::Release->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Release->new($maindb->{dbh});
     }
     elsif ($entity_type eq 'track')
     {
-        $obj = MusicBrainz::Server::Track->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Track->new($maindb->{dbh});
     }
     elsif ($entity_type eq 'label')
     {
-        $obj = MusicBrainz::Server::Label->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Label->new($maindb->{dbh});
     }
-    $obj->SetMBId($entity_id);
+    $obj->mbid($entity_id);
     unless ($obj->LoadFromId)
     {
         die "Cannot load entity. Bad entity id given?"
     }
 
-    my $tag = MusicBrainz::Server::Tag->new($maindb->{DBH});
+    my $tag = MusicBrainz::Server::Tag->new($maindb->{dbh});
     my $tags = $tag->GetRawTagsForEntity($entity_type, $obj->GetId, $user->GetId);
 
     my $printer = sub {

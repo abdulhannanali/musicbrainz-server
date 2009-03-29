@@ -37,9 +37,8 @@ require Exporter;
 our @ISA = qw(Exporter);
 our @EXPORT = qw(convert_inc bad_req send_response check_types
                  xml_artist xml_release xml_track xml_search xml_escape
-                 xml_label xml_cdstub
-                 get_type_and_status_from_inc get_release_type
-                 get_user
+                 xml_label xml_cdstub get_type_and_status_from_inc 
+                 get_release_type get_user
 );
 push @EXPORT, grep /^INC_/, keys %$stash;
 our %EXPORT_TAGS = (
@@ -242,8 +241,8 @@ sub get_user
         my $mb = MusicBrainz->new;
         $mb->Login(db => 'READWRITE');
 
-        require UserStuff;
-        $user = UserStuff->new($mb->{DBH});
+        require MusicBrainz::Server::Editor;
+        $user = MusicBrainz::Server::Editor->new($mb->{dbh});
         $user = $user->newFromName($username) or die "Cannot load user.\n";
     }
     return $user;
@@ -254,7 +253,7 @@ sub bad_req
     my ($c, $error) = @_;
 
     $c->response->status(RC_BAD_REQUEST);
-    $c->response->header("text/plain; charset=utf-8");
+    $c->response->content_type("text/plain; charset=utf-8");
     $c->response->body($error."\nFor usage, please see: http://musicbrainz.org/development/mmd\015\012"); # unless $r->header_only;
     return RC_OK;
 }
@@ -263,7 +262,7 @@ sub service_unavail
 {
     my ($c, $error) = @_;
     $c->response->status(RC_SERVICE_UNAVAILABLE);
-    $c->response->header("text/plain; charset=utf-8");
+    $c->response->content_type("text/plain; charset=utf-8");
     $c->response->body($error."\015\012"); # unless $r->header_only;
     return RC_OK;
 }
@@ -275,7 +274,7 @@ sub rate_limited
     my ($c, $t) = @_;
     $c->response->status(RC_SERVICE_UNAVAILABLE);
 #$r->headers_out->add("X-Rate-Limited", sprintf("%.1f %.1f %d", $t->rate, $t->limit, $t->period));
-    $c->response->header("text/plain; charset=utf-8");
+    $c->response->content_type("text/plain; charset=utf-8");
     unless (0) #$r->header_only)
     {
         # FIX ME
@@ -295,7 +294,7 @@ sub apply_rate_limit
 
     if (not defined $key)
     {
-        $key = "ws ip=" . $c->req->address;
+        $key = "ws ip=" . $c->request->address;
     }
 
     use MusicBrainz::Server::RateLimit;
@@ -322,22 +321,22 @@ sub send_response
 
     $c->response->status(RC_OK);
     $c->response->content_length(length($xml));
-    $c->response->header("text/xml; charset=utf-8");
-    $c->response->body(\$xml); # unless $r->header_only;
+    $c->response->content_type("text/xml; charset=utf-8");
+    $c->response->body($xml); # unless $r->header_only;
 }
 
 sub xml_artist
 {
     my ($ar, $inc, $info, $user) = @_;
 
-    printf '<artist id="%s"', $ar->GetMBId;
-    printf ' type="%s"', &MusicBrainz::Server::Artist::GetTypeName($ar->GetType()) if ($ar->GetType);
+    printf '<artist id="%s"', $ar->mbid;
+    printf ' type="%s"', &MusicBrainz::Server::Artist::type_name($ar->type()) if ($ar->type);
     printf '><name>%s</name><sort-name>%s</sort-name>',
-        xml_escape($ar->GetName),
-        xml_escape($ar->GetSortName);
-    print '<disambiguation>' . xml_escape($ar->GetResolution()) . '</disambiguation>' if ($ar->GetResolution());
+        xml_escape($ar->name),
+        xml_escape($ar->sort_name);
+    print '<disambiguation>' . xml_escape($ar->resolution) . '</disambiguation>' if ($ar->resolution);
 
-    my ($begin, $end) = ($ar->GetBeginDate, $ar->GetEndDate);
+    my ($begin, $end) = ($ar->begin_date, $ar->end_date);
     if ($begin|| $end)
     {
         print '<life-span';
@@ -351,43 +350,43 @@ sub xml_artist
         print '<alias-list>';
         foreach my $alias (@{$info->{aliases}})
         {
-            printf '<alias>%s</alias>', xml_escape($alias->[1]);
+            printf '<alias>%s</alias>', xml_escape($alias->name);
         }
         print '</alias-list>';
     }
     
     if ($inc & INC_TAGS)
     {
-        xml_tags($ar->{DBH}, 'artist', $ar->GetId);
+        xml_tags($ar->{dbh}, 'artist', $ar->id);
     }
     if ($inc & INC_RATINGS)
     {
-        xml_rating($ar->{DBH}, 'artist', $ar->GetId);
+        xml_rating($ar->{dbh}, 'artist', $ar->id);
     }
     if ($inc & INC_USER_TAGS)
     {
-        xml_user_tags($ar->{DBH}, 'artist', $ar->GetId, $user);
+        xml_user_tags($ar->{dbh}, 'artist', $ar->id, $user);
     }
     if ($inc & INC_USER_RATINGS)
     {
-        xml_user_rating($ar->{DBH}, 'artist', $ar->GetId, $user);
+        xml_user_rating($ar->{dbh}, 'artist', $ar->id, $user);
     }
     if (defined $info)
     {
-        my @albums = $ar->GetReleases(!$info->{va}, 1, $info->{va});
+        my @albums = $ar->releases(!$info->{va}, 1, $info->{va});
         if (scalar(@albums) && ($info->{type} != -1 || $info->{status} != -1))
         {
             my @filtered;
 
             foreach my $al (@albums)
             {
-                my ($t, $s) = $al->GetReleaseTypeAndStatus();
+                my ($t, $s) = $al->release_type_and_status();
                 push @filtered, $al if (($t == $info->{type} || $info->{type} == -1) && ($info->{status} == -1 || $info->{status} == $s));
             }
             if (scalar(@filtered))
             {
                 print '<release-list>';
-                foreach my $al (sort { $a->GetFirstReleaseDate() cmp $b->GetFirstReleaseDate() } @filtered)
+                foreach my $al (sort { $a->first_release_date() cmp $b->first_release_date() } @filtered)
                 {
                     xml_release($ar, $al, $inc, undef, undef, $user);
                 }
@@ -405,32 +404,32 @@ sub xml_release
 {
     my ($ar, $al, $inc, $tnum, $showscore, $user) = @_;
 
-    print '<release id="' . $al->GetMBId . '"';
+    print '<release id="' . $al->mbid . '"';
     xml_release_type($al);
     print ' ext:score="100"' if ($showscore);
-    print '><title>' . xml_escape($al->GetName) . '</title>';
+    print '><title>' . xml_escape($al->name) . '</title>';
 
     my ($lang, $script);
-    $lang = $al->GetLanguageId;
-    $script = $al->GetScriptId;
+    $lang = $al->language_id;
+    $script = $al->script_id;
     if ($lang || $script)
     {
         print '<text-representation';
-        print ' language="' . uc($al->GetLanguage->GetISOCode3T()) . '"' if ($lang);
-        print ' script="' . $al->GetScript->GetISOCode . '"' if ($script);
+        print ' language="' . uc($al->language->iso_code_3t) . '"' if ($lang);
+        print ' script="' . $al->script->GetISOCode . '"' if ($script);
         print '/>';
     }
 
-    my $asin = $al->GetAsin;
+    my $asin = $al->asin;
     print "<asin>$asin</asin>" if $asin;
 
     xml_artist($ar, 0) if ($inc & INC_ARTIST && $ar);
     xml_release_events($al, $inc) if ($inc & INC_RELEASEINFO || $inc & INC_COUNTS);
     xml_discs($al, $inc) if ($inc & INC_DISCS || $inc & INC_COUNTS);
-    xml_tags($al->{DBH}, 'release', $al->GetId) if ($inc & INC_TAGS);
-    xml_user_tags($al->{DBH}, 'release', $al->GetId, $user) if ($inc & INC_USER_TAGS);
-    xml_rating($al->{DBH}, 'release', $al->GetId) if ($inc & INC_RATINGS);
-    xml_user_rating($al->{DBH}, 'release', $al->GetId, $user) if ($inc & INC_USER_RATINGS);
+    xml_tags($al->{dbh}, 'release', $al->id) if ($inc & INC_TAGS);
+    xml_user_tags($al->{dbh}, 'release', $al->id, $user) if ($inc & INC_USER_TAGS);
+    xml_rating($al->{dbh}, 'release', $al->id) if ($inc & INC_RATINGS);
+    xml_user_rating($al->{dbh}, 'release', $al->id, $user) if ($inc & INC_USER_RATINGS);
     if ($inc & INC_TRACKS || $inc & INC_COUNTS && $ar)
     {
         xml_track_list($ar, $al, $inc, $user); 
@@ -448,9 +447,9 @@ sub xml_release_type
 {
     my $al = $_[0];
 
-    my ($type, $status) = $al->GetReleaseTypeAndStatus;
-    $type = (defined $type ? $al->GetAttributeName($type) : "");
-    $status = (defined $status ? $al->GetAttributeName($status) : "");
+    my ($type, $status) = $al->release_type_and_status;
+    $type = (defined $type ? MusicBrainz::Server::Release::attribute_name($type) : "");
+    $status = (defined $status ? MusicBrainz::Server::Release::attribute_name($status) : "");
 
     $type =~ s/-//g;
     $status =~ s/-//g;
@@ -461,11 +460,11 @@ sub xml_release_type
 sub xml_language
 {
     my $al = $_[0];
-    my ($lang) = $al->GetLanguage;
-    my ($name) = (defined $lang ? $lang->GetName : "?");
-    my ($code) = (defined $lang ? $al->GetLanguage->GetISOCode3T() : "?");
-    my ($script) = (defined $al->GetScript ? $al->GetScript->GetName : "?");
-    my ($editpending) = ($al->GetLanguageModPending() ? 'editpending="1"' : '');
+    my ($lang) = $al->language;
+    my ($name) = (defined $lang ? $lang->name : "?");
+    my ($code) = (defined $lang ? $al->language->iso_code_3T() : "?");
+    my ($script) = (defined $al->script ? $al->script->name : "?");
+    my ($editpending) = ($al->language_mod_pending() ? 'editpending="1"' : '');
 
     return '<mm:language '.$editpending.' '
          . 'code="'.xml_escape($code).'" '
@@ -478,8 +477,8 @@ sub xml_release_events
     require MusicBrainz::Server::Country;
 
     my ($al, $inc) = @_;
-    my (@releases) = $al->ReleaseEvents(($inc & INC_LABELS) ? 1 : 0);
-    my $country_obj = MusicBrainz::Server::Country->new($al->{DBH})
+    my (@releases) = $al->release_events(($inc & INC_LABELS) ? 1 : 0);
+    my $country_obj = MusicBrainz::Server::Country->new($al->{dbh})
        if @releases;
     
     my ($xml) = "";
@@ -493,13 +492,13 @@ sub xml_release_events
         print "<release-event-list>";
         for my $rel (@releases)
         {
-            my $cid = $rel->GetCountry;
+            my $cid = $rel->country;
             my $c = $country_obj->newFromId($cid);
-            my ($year, $month, $day) = $rel->GetYMD();
+            my ($year, $month, $day) = $rel->ymd();
             my ($releasedate) = $year;
             $releasedate .= sprintf "-%02d", $month if ($month != 0);
             $releasedate .= sprintf "-%02d", $day if ($day != 0);
-            my ($editpending) = ($rel->GetModPending ? 'editpending="1"' : '');
+            my ($editpending) = ($rel->mod_pending ? 'editpending="1"' : '');
 
             # create a releasedate element
             print '<event';
@@ -510,18 +509,18 @@ sub xml_release_events
                 print '"';
             }
             print ' country="'; 
-            print ($c ? $c->GetISOCode : "?");
+            print ($c ? $c->iso_code : "?");
             print '"';
-            printf ' catalog-number="%s"', xml_escape($rel->GetCatNo) if $rel->GetCatNo;
-            printf ' barcode="%s"', xml_escape($rel->GetBarcode) if $rel->GetBarcode;
-            printf ' format="%s"', xml_escape($formatNames{$rel->GetFormat}) if $rel->GetFormat;
-            if (($inc & INC_LABELS) && $rel->GetLabel)
+            printf ' catalog-number="%s"', xml_escape($rel->cat_no) if $rel->cat_no;
+            printf ' barcode="%s"', xml_escape($rel->barcode) if $rel->barcode;
+            printf ' format="%s"', xml_escape($formatNames{$rel->format}) if $rel->format;
+            if (($inc & INC_LABELS) && $rel->label)
             {
                 print '>';
-                my $label = MusicBrainz::Server::Label->new($rel->{DBH});
-                $label->SetId($rel->GetLabel);
-                $label->SetMBId($rel->GetLabelMBId);
-                $label->SetName($rel->GetLabelName);
+                my $label = MusicBrainz::Server::Label->new($rel->{dbh});
+                $label->id($rel->label);
+                $label->mbid($rel->label_mbid);
+                $label->SetName($rel->label_name);
                 xml_label($label, $inc);
                 print '</event>';
             }
@@ -550,9 +549,9 @@ sub xml_discs
         print "<disc-list>";
         foreach my $id (@ids)
         {
-            my ($cdtoc) = $id->GetCDTOC;
-            my ($sectors) = $cdtoc->GetLeadoutOffset;
-            my ($discid) = $cdtoc->GetDiscID;
+            my ($cdtoc) = $id->cdtoc;
+            my ($sectors) = $cdtoc->leadout_offset;
+            my ($discid) = $cdtoc->disc_id;
 
             # create a cdindexId element
             print '<disc sectors="';
@@ -589,11 +588,9 @@ sub xml_track_list
         foreach my $tr (@$tracks)
         {
 
-            if ($ar->GetId != $tr->GetArtist)
+            if ($ar->id != $tr->artist)
             {
-                my $ar;
-                $ar = MusicBrainz::Server::Artist->new($tr->{DBH});
-                $ar->SetId($tr->GetArtist);
+                my $ar = $tr->artist;
                 $ar->LoadFromId();
                 xml_track($ar, $tr, $tr_inc, $user);
             }
@@ -613,14 +610,14 @@ sub xml_track
     my ($ar, $tr, $inc, $user) = @_;
 
 
-    printf '<track id="%s"', $tr->GetMBId;
+    printf '<track id="%s"', $tr->mbid;
     print '><title>';
-    print xml_escape($tr->GetName());
+    print xml_escape($tr->name());
     print '</title>';
-    if ($tr->GetLength())
+    if ($tr->length())
     {
         print '<duration>';
-        print xml_escape($tr->GetLength());
+        print xml_escape($tr->length());
         print '</duration>';
     }
     xml_artist($ar, 0) if (defined $ar);
@@ -629,11 +626,11 @@ sub xml_track
         my @albums = $tr->GetAlbumInfo();
         if (scalar(@albums))
         {
-            my $al = MusicBrainz::Server::Release->new($ar->{DBH});
+            my $al = MusicBrainz::Server::Release->new($ar->{dbh});
             print '<release-list>';
             foreach my $i (@albums)
             {
-                $al->SetMBId($i->[3]);
+                $al->mbid($i->[3]);
                 if ($al->LoadFromId())
                 {
                     xml_release($ar, $al, 0, $i->[2], undef, $user) 
@@ -644,10 +641,10 @@ sub xml_track
     }
     xml_puid($tr) if ($inc & INC_PUIDS);
     xml_relations($tr, 'track', $inc) if ($inc & INC_ARTISTREL || $inc & INC_LABELREL || $inc & INC_RELEASEREL || $inc & INC_TRACKREL || $inc & INC_URLREL);
-    xml_tags($tr->{DBH}, 'track', $tr->GetId) if ($inc & INC_TAGS);
-    xml_user_tags($tr->{DBH}, 'track', $tr->GetId, $user) if ($inc & INC_USER_TAGS);
-    xml_rating($tr->{DBH}, 'track', $tr->GetId) if ($inc & INC_RATINGS);
-    xml_user_rating($tr->{DBH}, 'track', $tr->GetId, $user) if ($inc & INC_USER_RATINGS);
+    xml_tags($tr->{dbh}, 'track', $tr->id) if ($inc & INC_TAGS);
+    xml_user_tags($tr->{dbh}, 'track', $tr->id, $user) if ($inc & INC_USER_TAGS);
+    xml_rating($tr->{dbh}, 'track', $tr->id) if ($inc & INC_RATINGS);
+    xml_user_rating($tr->{dbh}, 'track', $tr->id, $user) if ($inc & INC_USER_RATINGS);
     print '</track>';
 
     return undef;
@@ -659,8 +656,8 @@ sub xml_puid
     my ($tr) = @_;
 
     my $id;
-    my $puid = MusicBrainz::Server::PUID->new($tr->{DBH});
-    my @PUID = $puid->GetPUIDFromTrackId($tr->GetId);
+    my $puid = MusicBrainz::Server::PUID->new($tr->{dbh});
+    my @PUID = $puid->GetPUIDFromTrackId($tr->id);
     return undef if (scalar(@PUID) == 0);
     print '<puid-list>';
     foreach $id (@PUID)
@@ -677,25 +674,24 @@ sub xml_label
 {
     my ($ar, $inc, $info, $user) = @_;
 
-    printf '<label id="%s"', $ar->GetMBId;
-    if ($ar->GetType)
+    printf '<label id="%s"', $ar->mbid;
+    if ($ar->type)
     {
-        my $name = &MusicBrainz::Server::Label::GetTypeName($ar->GetType());
+        my $name = &MusicBrainz::Server::Label::type_name($ar->type);
         $name =~ s/(^|[^A-Za-z0-9])+([A-Za-z0-9]?)/uc $2/eg;
         printf ' type="%s"', $name;
     }
-    print '><name>' . xml_escape($ar->GetName) . '</name>';
-    print '<sort-name>' . xml_escape($ar->GetSortName) . '</sort-name>';
-    print '<label-code>' . xml_escape($ar->GetLabelCode) . '</label-code>' if $ar->GetLabelCode;
-    print '<disambiguation>' . xml_escape($ar->GetResolution()) . '</disambiguation>' if ($ar->GetResolution());
-    if ($ar->GetCountry())
+    print '><name>' . xml_escape($ar->name) . '</name>';
+    print '<sort-name>' . xml_escape($ar->sort_name) . '</sort-name>';
+    print '<label-code>' . xml_escape($ar->label_code) . '</label-code>' if $ar->label_code;
+    print '<disambiguation>' . xml_escape($ar->resolution) . '</disambiguation>' if ($ar->resolution);
+    if ($ar->country)
     {
-        my $c = MusicBrainz::Server::Country->new($ar->GetDBH);
-        $c = $c->newFromId($ar->GetCountry);
+        my $c = MusicBrainz::Server::Country->newFromId($ar->dbh, $ar->country);
         print '<country>' . xml_escape($c->GetISOCode) . '</country>';
     }
     
-    my ($b, $e) = ($ar->GetBeginDate, $ar->GetEndDate);
+    my ($b, $e) = ($ar->begin_date, $ar->end_date);
     if ($b|| $e)
     {
         print '<life-span';
@@ -715,10 +711,10 @@ sub xml_label
    }
 
     xml_relations($ar, 'label', $inc) if ($inc & INC_ARTISTREL || $inc & INC_LABELREL || $inc & INC_RELEASEREL || $inc & INC_TRACKREL || $inc & INC_URLREL);
-    xml_tags($ar->{DBH}, 'label', $ar->GetId) if ($inc & INC_TAGS);
-    xml_user_tags($ar->{DBH}, 'label', $ar->GetId, $user) if ($inc & INC_USER_TAGS);
-    xml_rating($ar->{DBH}, 'label', $ar->GetId) if ($inc & INC_RATINGS);
-    xml_user_rating($ar->{DBH}, 'label', $ar->GetId, $user) if ($inc & INC_USER_RATINGS);
+    xml_tags($ar->{dbh}, 'label', $ar->id) if ($inc & INC_TAGS);
+    xml_user_tags($ar->{dbh}, 'label', $ar->id, $user) if ($inc & INC_USER_TAGS);
+    xml_rating($ar->{dbh}, 'label', $ar->id) if ($inc & INC_RATINGS);
+    xml_user_rating($ar->{dbh}, 'label', $ar->id, $user) if ($inc & INC_USER_RATINGS);
     print "</label>";
 
     return undef;
@@ -753,7 +749,7 @@ sub xml_user_tags
     return if not defined $user; 
 
     my $tag = MusicBrainz::Server::Tag->new($dbh);
-    my $tags = $tag->GetRawTagsForEntity($entity, $id, $user->GetId);
+    my $tags = $tag->GetRawTagsForEntity($entity, $id, $user->id);
 
     return undef if (scalar(@$tags) == 0);
 
@@ -788,7 +784,7 @@ sub xml_user_rating
     return undef if not defined $user;
 
     my $rt = MusicBrainz::Server::Rating->new($dbh);
-    my $rating = $rt->GetUserRatingForEntity($entity, $id, $user->GetId);
+    my $rating = $rt->GetUserRatingForEntity($entity, $id, $user->id);
 
     return undef unless $rating;
 
@@ -811,7 +807,7 @@ sub load_object
         else
         {
             my $temp = MusicBrainz::Server::Artist->new($dbh);
-            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->SetMBId($id) : $temp->SetId($id);
+            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->mbid($id) : $temp->id($id);
             die "Could not load artist $id\n" if (!$temp->LoadFromId());
             $cache->{$k} = $temp;
             return $temp;
@@ -827,7 +823,7 @@ sub load_object
         else
         {
             my $temp = MusicBrainz::Server::Label->new($dbh);
-            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->SetMBId($id) : $temp->SetId($id);
+            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->mbid($id) : $temp->id($id);
             die "Could not load label $id\n" if (!$temp->LoadFromId());
             $cache->{$k} = $temp;
             return $temp;
@@ -843,7 +839,7 @@ sub load_object
         else
         {
             $temp = MusicBrainz::Server::Release->new($dbh);
-            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->SetMBId($id) : $temp->SetId($id);
+            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->mbid($id) : $temp->id($id);
             die "Could not load release $id\n" if (!$temp->LoadFromId());
             $cache->{$k} = $temp;
             return $temp;
@@ -859,7 +855,7 @@ sub load_object
         else
         {
             $temp = MusicBrainz::Server::Track->new($dbh);
-            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->SetMBId($id) : $temp->SetId($id);
+            MusicBrainz::Server::Validation::IsGUID($id) ? $temp->mbid($id) : $temp->id($id);
             die "Could not load track $id\n" if (!$temp->LoadFromId());
             $cache->{$k} = $temp;
             return $temp;
@@ -873,7 +869,7 @@ sub xml_relations
     my ($obj, $type, $inc) = @_;
 
     require MusicBrainz::Server::Link;
-    my @links = MusicBrainz::Server::Link->FindLinkedEntities($obj->{DBH}, $obj->GetId, $type);
+    my @links = MusicBrainz::Server::Link->FindLinkedEntities($obj->{dbh}, $obj->id, $type);
     my (%rels);
     $rels{artist} = [];
     $rels{album} = [];
@@ -882,10 +878,10 @@ sub xml_relations
     {
         my $temp;
 
-        my $otype = $item->{"link" . (($item->{link0_id} == $obj->GetId && $item->{link0_type} eq $type) ? 1 : 0) . "_type"};
-        my $oid = $item->{"link" . (($item->{link0_id} == $obj->GetId && $item->{link0_type} eq $type) ? 1 : 0) . "_id"};
+        my $otype = $item->{"link" . (($item->{link0_id} == $obj->id && $item->{link0_type} eq $type) ? 1 : 0) . "_type"};
+        my $oid = $item->{"link" . (($item->{link0_id} == $obj->id && $item->{link0_type} eq $type) ? 1 : 0) . "_id"};
 
-        if ($item->{link0_id} == $obj->GetId && $item->{link0_type} eq $type)
+        if ($item->{link0_id} == $obj->id && $item->{link0_type} eq $type)
         {
              if (($inc & INC_ARTISTREL && $item->{link1_type} eq 'artist') ||
                  ($inc & INC_RELEASEREL && $item->{link1_type} eq 'album') ||
@@ -947,7 +943,7 @@ sub xml_relations
             if (exists $rel->{"_attrs"})
             {
                 # If we have more detailed attributes, collect them
-                my $attrs = $rel->{"_attrs"}->GetAttributes();
+                my $attrs = $rel->{"_attrs"}->attributes;
                 if ($attrs)
                 {
                     foreach my $ref (@$attrs)
@@ -968,24 +964,24 @@ sub xml_relations
             if ($rel->{type} eq 'artist')
             {
                 print '>';
-                xml_artist(load_object(\%cache, $obj->{DBH}, $rel->{id}, $rel->{type}, 0));
+                xml_artist(load_object(\%cache, $obj->{dbh}, $rel->{id}, $rel->{type}), 0);
             } 
             elsif ($rel->{type} eq 'album')
             {
                 print '>';
-                my $al = load_object(\%cache, $obj->{DBH}, $rel->{id}, $rel->{type}, 0);
-                my $ar = load_object(\%cache, $obj->{DBH}, $al->GetArtist, 'artist', 0);
+                my $al = load_object(\%cache, $obj->{dbh}, $rel->{id}, $rel->{type});
+                my $ar = load_object(\%cache, $obj->{dbh}, $al->artist, 'artist');
                 xml_release($ar, $al, 0);
             } 
             elsif ($rel->{type} eq 'label')
             {
                 print '>';
-                xml_label(load_object(\%cache, $obj->{DBH}, $rel->{id}, $rel->{type}, 0));
+                xml_label(load_object(\%cache, $obj->{dbh}, $rel->{id}, $rel->{type}), 0);
             } 
             elsif ($rel->{type} eq 'track')
             {
                 print '>';
-                my $tr = load_object(\%cache, $obj->{DBH}, $rel->{id}, $rel->{type}, 0);
+                my $tr = load_object(\%cache, $obj->{dbh}, $rel->{id}, $rel->{type});
                 xml_track(undef, $tr, 0);
             }
             else
@@ -1026,7 +1022,7 @@ sub xml_search
     my $query = "";
     my $dur = 0;
     my $offset = 0;
-    my $limit = $args->{limit};
+    my $limit = $args->{limit} || 0;
 
     $offset = $args->{offset} if (defined $args->{offset} && MusicBrainz::Server::Validation::IsNonNegInteger($args->{offset}));
     $limit = 25 if ($limit < 1 || $limit > 100);
@@ -1212,7 +1208,7 @@ sub xml_search
    
     $c->response->status(RC_OK);
     $c->response->content_length(length($out));
-    $c->response->header("text/xml; charset=utf-8");
+    $c->response->content_type("text/xml; charset=utf-8");
     $c->response->body($out); # unless $r->header_only;
     return RC_OK;
 }

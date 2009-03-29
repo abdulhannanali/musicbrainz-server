@@ -44,7 +44,7 @@ sub handler
 
     my $mbid = $1 if ($r->path =~ /ws\/1\/artist\/([a-z0-9-]*)/);
     my $info;
-    my ($inc, $bad) = convert_inc($r->params->{inc});
+    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
     ($info, $bad) = get_type_and_status_from_inc($bad);
     if ($bad)
     {
@@ -73,17 +73,17 @@ sub handler
         my $limit = $r->params->{limit};
         my $offset = $r->params->{offset} or 0;
 
-        if (my $st = apply_rate_limit($r)) { return $st }
-        return xml_search($r, { type => 'artist', artist => $name, limit => $limit, query=>$query, offset=>$offset });
+        if (my $st = apply_rate_limit($c)) { return $st }
+        return xml_search($c, { type => 'artist', artist => $name, limit => $limit, query=>$query, offset=>$offset });
     }
 
-    if (my $st = apply_rate_limit($r)) { return $st }
+    if (my $st = apply_rate_limit($c)) { return $st }
 
     my $user = get_user($r->user, $inc); 
     my $status = eval {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $mbid, $inc, $info, $user);
+            my $status = serve_from_db($c, $mbid, $inc, $info, $user);
             return $status if defined $status;
         }
         undef;
@@ -94,7 +94,7 @@ sub handler
         my $error = "$@";
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
-        $c->response->header("text/plain; charset=utf-8");
+        $c->response->content_type("text/plain; charset=utf-8");
         $c->response->body($error."\015\012"); # unless $r->header_only;
         return RC_INTERNAL_SERVER_ERROR;
     }
@@ -119,15 +119,15 @@ sub serve_from_db
     $mb->Login;
     require MusicBrainz::Server::Artist;
 
-    $ar = MusicBrainz::Server::Artist->new($mb->{DBH});
-    $ar->SetMBId($mbid);
+    $ar = MusicBrainz::Server::Artist->new($mb->{dbh});
+    $ar->mbid($mbid);
     return undef unless $ar->LoadFromId(1);
 
     if ($inc & INC_ALIASES)
     {
         require MusicBrainz::Server::Alias;
-        my $alias = MusicBrainz::Server::Alias->new($mb->{DBH}, "ArtistAlias");
-        my @list = $alias->GetList($ar->GetId);
+        my $alias = MusicBrainz::Server::Alias->new($mb->{dbh}, "ArtistAlias");
+        my @list = $alias->load_all($ar->id);
         $info->{aliases} = \@list;  
     }
     
@@ -145,7 +145,7 @@ sub print_xml
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
     print '<metadata xmlns="http://musicbrainz.org/ns/mmd-1.0#">';
-    print xml_artist($ar, $inc, $info, $user);
+    xml_artist($ar, $inc, $info, $user);
     print '</metadata>';
 }
 

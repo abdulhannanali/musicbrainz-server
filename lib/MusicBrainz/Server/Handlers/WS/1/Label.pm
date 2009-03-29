@@ -45,7 +45,7 @@ sub handler
     my $mbid = $1 if ($r->path =~ /ws\/1\/label\/([a-z0-9-]*)/);
 
     my ($info); 
-    my ($inc, $bad) = convert_inc($r->params->{inc});
+    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
     ($info, $bad) = get_type_and_status_from_inc($bad);
     if ($bad)
     {
@@ -71,17 +71,17 @@ sub handler
         my $offset = $r->params->{offset} || 0;
         my $query = $r->params->{query} || "";
 
-        if (my $st = apply_rate_limit($r)) { return $st }
-        return xml_search($r, { type => 'label', label => $name, limit => $limit, offset => $offset, query => $query });
+        if (my $st = apply_rate_limit($c)) { return $st }
+        return xml_search($c, { type => 'label', label => $name, limit => $limit, offset => $offset, query => $query });
     }
 
-    if (my $st = apply_rate_limit($r)) { return $st }
+    if (my $st = apply_rate_limit($c)) { return $st }
 
     my $user = get_user($r->user, $inc); 
     my $status = eval {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $mbid, $inc, $info, $user);
+            my $status = serve_from_db($c, $mbid, $inc, $info, $user);
             return $status if defined $status;
         }
         undef;
@@ -92,7 +92,7 @@ sub handler
         my $error = "$@";
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
-        $c->response->header("text/plain; charset=utf-8");
+        $c->response->content_type("text/plain; charset=utf-8");
         $c->response->body($error."\015\012"); # unless $r->header_only;
         return RC_INTERNAL_SERVER_ERROR;
     }
@@ -118,13 +118,13 @@ sub serve_from_db
     $mb->Login;
     require MusicBrainz::Server::Label;
 
-    $ar = MusicBrainz::Server::Label->new($mb->{DBH});
-    $ar->SetMBId($mbid);
+    $ar = MusicBrainz::Server::Label->new($mb->{dbh});
+    $ar->mbid($mbid);
     return undef unless $ar->LoadFromId(1);
     
     if ($inc & INC_ALIASES) {
         require MusicBrainz::Server::Alias;
-        my $alias = MusicBrainz::Server::Alias->new($mb->{DBH}, "LabelAlias");
+        my $alias = MusicBrainz::Server::Alias->new($mb->{dbh}, "LabelAlias");
         my @list = $alias->GetList($ar->GetId);
         $info->{aliases} = \@list;
     }

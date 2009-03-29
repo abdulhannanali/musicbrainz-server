@@ -54,7 +54,7 @@ sub handler
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $user);
+            my $status = serve_from_db($c, $user);
             return $status if defined $status;
         }
         undef;
@@ -100,7 +100,7 @@ sub print_xml
     require MusicBrainz::Server::Artist;
 
     require UserStuff;
-    my $us = UserStuff->new($mb->{DBH});
+    my $us = UserStuff->new($mb->{dbh});
     $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     my @types;

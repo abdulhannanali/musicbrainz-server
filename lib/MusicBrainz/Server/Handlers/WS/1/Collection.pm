@@ -47,11 +47,9 @@ sub handler
     
     if($r->method eq "POST")
     {
-        my $apr = Apache::Request->new($r);
-        
         # split into arrays
-        @addAlbums=split(/, |,/, $apr->param('addAlbums'));
-        @removeAlbums=split(/, |,/, $apr->param('removeAlbums'));
+        @addAlbums=split(/, |,/, $r->params->{'addAlbums'});
+        @removeAlbums=split(/, |,/, $r->params->{'removeAlbums'});
     }
     else
     {   
@@ -69,20 +67,20 @@ sub handler
     my $mbraw = MusicBrainz->new();
     $mbraw->Login(db => 'RAWDATA');
     
-    my $sqlraw = Sql->new($mbraw->{DBH});
-    my $sqlro = Sql->new($mbro->{DBH});
+    my $sqlraw = Sql->new($mbraw->{dbh});
+    my $sqlro = Sql->new($mbro->{dbh});
     
     # get user id for logged on user
     my $userId = $sqlro->SelectSingleValue("SELECT id FROM moderator WHERE name = ?", $r->user);
     
     # make sure the user has a collection_info tuple
-    MusicBrainz::Server::CollectionInfo::AssureCollectionIdForUser($userId, $mbraw->{DBH});
+    MusicBrainz::Server::CollectionInfo::AssureCollectionIdForUser($userId, $mbraw->{dbh});
     
     # get collection_info id
-    my $collectionId = MusicBrainz::Server::CollectionInfo::GetCollectionIdForUser($userId, $mbraw->{DBH});
+    my $collectionId = MusicBrainz::Server::CollectionInfo::GetCollectionIdForUser($userId, $mbraw->{dbh});
     
     # instantiate Collection object
-    my $collection = MusicBrainz::Server::Collection->new($mbro->{DBH}, $mbraw->{DBH}, $collectionId);
+    my $collection = MusicBrainz::Server::Collection->new($mbro->{dbh}, $mbraw->{dbh}, $collectionId);
     
     
     # only allow one at a time. return a 400 error if both are used
@@ -93,7 +91,7 @@ sub handler
     elsif(!@addAlbums && !@removeAlbums)
     {
         $printer = sub {
-            print_collection_xml($collectionId, $mbro->{DBH}, $mbraw->{DBH});
+            print_collection_xml($collectionId, $mbro->{dbh}, $mbraw->{dbh});
         };
     }
     elsif(@addAlbums){

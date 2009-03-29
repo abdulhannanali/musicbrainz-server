@@ -43,7 +43,7 @@ sub handler
     # GET  http://server/ws/1/release or
     # GET  http://server/ws/1/release/MBID 
 
-    return handler_post($r) if ($r->method eq "POST");
+    return handler_post($c) if ($r->method eq "POST");
 
     return bad_req($c, "Only GET/POST methods are acceptable")
         unless $r->method eq "GET";
@@ -52,7 +52,7 @@ sub handler
 
     # Check general arguments
     
-    my ($inc, $bad) = convert_inc($r->params->{inc});
+    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
     if ($bad)
     {
         return bad_req($c, "Invalid inc options: '$bad'.");
@@ -108,22 +108,22 @@ sub handler
 
         $artist = "" if ($artistid);
 
-        if (my $st = apply_rate_limit($r)) { return $st }
+        if (my $st = apply_rate_limit($c)) { return $st }
 
-        return xml_search($r, {type=>'release', artist=>$artist, release=>$title, offset=>$offset,
+        return xml_search($c, {type=>'release', artist=>$artist, release=>$title, offset=>$offset,
                                artistid => $artistid, limit => $limit, releasetype => $info->{type}, 
                                releasestatus=> $info->{status}, count=> $count, discids=>$discids,
                                date => $date, asin=>$asin, lang=>$lang, script=>$script, query=>$query });
     }
 
-    if (my $st = apply_rate_limit($r)) { return $st }
+    if (my $st = apply_rate_limit($c)) { return $st }
 
     my $user = get_user($r->user, $inc); 
     my $status = eval 
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $mbid, $artistid, $cdid, $toc, $inc, $user);
+            my $status = serve_from_db($c, $mbid, $artistid, $cdid, $toc, $inc, $user);
             return $status if defined $status;
         }
         undef;
@@ -213,7 +213,7 @@ sub handler_post
     my $mb = MusicBrainz->new;
     $mb->Login;
 
-    my $rcdtoc = MusicBrainz::Server::ReleaseCDTOC->new($mb->{DBH});
+    my $rcdtoc = MusicBrainz::Server::ReleaseCDTOC->new($mb->{dbh});
     my $releaseids = $rcdtoc->GetReleaseIDsFromDiscID($discid);
     if (scalar(@$releaseids))
     {
@@ -225,7 +225,7 @@ sub handler_post
     $mb->Login(db => "RAWDATA");
 
     require MusicBrainz::Server::CDStub;
-    my $rc = MusicBrainz::Server::CDStub->new($mb->{DBH});
+    my $rc = MusicBrainz::Server::CDStub->new($mb->{dbh});
     my $cd = $rc->Lookup($discid);
     if ($cd)
     {
@@ -270,10 +270,10 @@ sub serve_from_db
 
     my @releases;
     my $cdstub;
-    $al = MusicBrainz::Server::Release->new($mb->{DBH});
+    $al = MusicBrainz::Server::Release->new($mb->{dbh});
     if ($mbid)
     {
-        $al->SetMBId($mbid);
+        $al->mbid($mbid);
         return undef unless $al->LoadFromId(1);
         push @releases, $al;
     }
@@ -284,14 +284,14 @@ sub serve_from_db
         $is_coll = 1;
         $inc = INC_ARTIST | INC_COUNTS | INC_RELEASEINFO | INC_TRACKS;
 
-        my $cd = MusicBrainz::Server::ReleaseCDTOC->new($mb->{DBH});
+        my $cd = MusicBrainz::Server::ReleaseCDTOC->new($mb->{dbh});
         my $releaseids = $cd->GetReleaseIDsFromDiscID($cdid);
         if (scalar(@$releaseids))
         {
             foreach my $id (@$releaseids)
             {
-                $al = MusicBrainz::Server::Release->new($mb->{DBH});
-                $al->SetId($id);
+                $al = MusicBrainz::Server::Release->new($mb->{dbh});
+                $al->id($id);
                 return undef unless $al->LoadFromId(1);
                 push @releases, $al;
             }
@@ -302,7 +302,7 @@ sub serve_from_db
             my $raw = MusicBrainz->new;
             $raw->Login(db => 'RAWDATA');
             require MusicBrainz::Server::CDStub;
-            my $rc = MusicBrainz::Server::CDStub->new($raw->{DBH});
+            my $rc = MusicBrainz::Server::CDStub->new($raw->{dbh});
             $cdstub = $rc->Lookup($cdid);
             $rc->IncrementLookupCount($cdstub->{id}) if $cdstub;
             if (!$cdstub || $cdstub->{age} > SERVE_CRAP_FOR_THESE_MANY_DAYS)
@@ -313,8 +313,11 @@ sub serve_from_db
     }
     if (@releases && !$ar && !$cdstub && ($inc & INC_ARTIST || $inc & INC_TRACKS))
     {
-        $ar = MusicBrainz::Server::Artist->new($mb->{DBH});
-        $ar->SetId($al->GetArtist);
+        $ar = MusicBrainz::Server::Artist->new($mb->{dbh});
+        use Data::Dumper;
+        my $rr = $al->artist;
+        print STDERR Dumper($rr);
+        $ar->id($al->artist);
         $ar->LoadFromId();
     }
 

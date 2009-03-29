@@ -47,8 +47,8 @@ sub handler
     if ($r->method eq "POST")
     {
         my $entity = $r->params->{'entity.0'};
-        return handler_post_multiple($r) if ($entity);
-        return handler_post($r);
+        return handler_post_multiple($c) if ($entity);
+        return handler_post($c);
     }
 
     return bad_req($c, "Only GET or POST is acceptable")
@@ -74,7 +74,7 @@ sub handler
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $user, $entity, $id);
+            my $status = serve_from_db($c, $user, $entity, $id);
             return $status if defined $status;
         }
         undef;
@@ -163,13 +163,6 @@ sub handler_post_multiple
     my $user = $r->user;
     my @batch;
 
-    # Ensure that the login name is the same as the resource requested 
-    if ($r->user ne $user)
-    {
-        $c->response->status(RC_FORBIDDEN);
-        return RC_FORBIDDEN;
-    }
-
     # Ensure that we're not a replicated server and that we were given a client version
     if (&DBDefs::REPLICATION_TYPE == &DBDefs::RT_SLAVE)
     {
@@ -205,7 +198,7 @@ sub handler_post_multiple
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($r, $user, \@batch);
+            my $status = serve_from_db_post($c, $user, \@batch);
             return $status if defined $status;
         }
         undef;
@@ -216,7 +209,7 @@ sub handler_post_multiple
         my $error = "$@";
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
-        $r->content_type("text/plain; charset=utf-8");
+        $c->response->content_type("text/plain; charset=utf-8");
         $c->response->body($error."\015\012"); # unless $r->header_only;
         return RC_INTERNAL_SERVER_ERROR
     }
@@ -250,11 +243,11 @@ sub process_user_input
     $mb->Login();
 
     require UserStuff;
-    my $us = UserStuff->new($mb->{DBH});
+    my $us = UserStuff->new($mb->{dbh});
     $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     require Sql;
-    my $sql = Sql->new($mb->{DBH});
+    my $sql = Sql->new($mb->{dbh});
 
     require MusicBrainz::Server::Artist;
     require MusicBrainz::Server::Release;
@@ -266,27 +259,27 @@ sub process_user_input
     {
         if ($rating->{entity} eq 'artist')
         {
-            $obj = MusicBrainz::Server::Artist->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Artist->new($sql->{dbh});
         }
         elsif ($rating->{entity} eq 'release')
         {
-            $obj = MusicBrainz::Server::Release->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Release->new($sql->{dbh});
         }
         elsif ($rating->{entity} eq 'track')
         {
-            $obj = MusicBrainz::Server::Track->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Track->new($sql->{dbh});
         }
         elsif ($rating->{entity} eq 'label')
         {
-            $obj = MusicBrainz::Server::Label->new($sql->{DBH});
+            $obj = MusicBrainz::Server::Label->new($sql->{dbh});
         }
-        $obj->SetMBId($rating->{id});
+        $obj->mbid($rating->{id});
         unless ($obj->LoadFromId)
         {
             return bad_req($c, "Cannot load " . $rating->{entity} . ' ' . $rating->{id} . ". Bad entity id given?");
         } 
 
-        my $ratings = MusicBrainz::Server::Rating->new($mb->{DBH});
+        my $ratings = MusicBrainz::Server::Rating->new($mb->{dbh});
         $ratings->Update($rating->{entity}, $obj->GetId, $us->GetId, $rating->{rating});
     }
 
@@ -301,10 +294,10 @@ sub serve_from_db
     # Login to the main DB
     my $main = MusicBrainz->new;
     $main->Login();
-    my $maindb = Sql->new($main->{DBH});
+    my $maindb = Sql->new($main->{dbh});
 
     require UserStuff;
-    my $user = UserStuff->new($maindb->{DBH});
+    my $user = UserStuff->new($maindb->{dbh});
     $user = $user->newFromName($user_name) or die "Cannot load user.\n";
 
     require MusicBrainz::Server::Artist;
@@ -315,27 +308,27 @@ sub serve_from_db
     my $obj;
     if ($entity_type eq 'artist')
     {
-        $obj = MusicBrainz::Server::Artist->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Artist->new($maindb->{dbh});
     }
     elsif ($entity_type eq 'release')
     {
-        $obj = MusicBrainz::Server::Release->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Release->new($maindb->{dbh});
     }
     elsif ($entity_type eq 'track')
     {
-        $obj = MusicBrainz::Server::Track->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Track->new($maindb->{dbh});
     }
     elsif ($entity_type eq 'label')
     {
-        $obj = MusicBrainz::Server::Label->new($maindb->{DBH});
+        $obj = MusicBrainz::Server::Label->new($maindb->{dbh});
     }
-    $obj->SetMBId($entity_id);
+    $obj->mbid($entity_id);
     unless ($obj->LoadFromId)
     {
         return bad_req($c, "Cannot load $entity_type $entity_id. Bad entity id given?");
     }
 
-    my $rt = MusicBrainz::Server::Rating->new($maindb->{DBH});
+    my $rt = MusicBrainz::Server::Rating->new($maindb->{dbh});
     my $rating = $rt->GetUserRatingForEntity($entity_type, $obj->GetId, $user->GetId);
 
     my $printer = sub {

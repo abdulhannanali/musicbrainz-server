@@ -44,7 +44,7 @@ sub handler
 
     my $mbid = $1 if ($r->path =~ /ws\/1\/track\/([a-z0-9-]*)/);
 
-    my ($inc, $bad) = convert_inc($r->params->{inc});
+    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
     if ($bad)
     {
         return bad_req($c, "Invalid inc options: '$bad'.");
@@ -80,7 +80,7 @@ sub handler
 
         my $duration = $r->params->{duration} || 0;
         my $tnum = -1;
-        $tnum = $r->params->{tracknumber} + 1 if ($r->params->{tracknumber} =~ /^\d+$/);
+        $tnum = $r->params->{tracknumber} + 1 if (defined $r->params->{tracknumber} && $r->params->{tracknumber} =~ /^\d+$/);
         my $limit = $r->params->{limit};
 
         my $artistid = $r->params->{artistid};
@@ -97,21 +97,21 @@ sub handler
         }
         $release = "" if ($releaseid);
 
-        if (my $st = apply_rate_limit($r)) { return $st }
+        if (my $st = apply_rate_limit($c)) { return $st }
 
-        return xml_search($r, {type=>'track', track=>$title, artist=>$artist, release=>$release, 
+        return xml_search($c, {type=>'track', track=>$title, artist=>$artist, release=>$release, 
                                artistid => $artistid, releaseid=>$releaseid, duration=>$duration,
                                tracknumber => $tnum, limit => $limit, count => $count, releasetype=>$releasetype, 
                                query=>$query, offset=>$offset});
     }
 
-    if (my $st = apply_rate_limit($r)) { return $st }
+    if (my $st = apply_rate_limit($c)) { return $st }
 
     my $status = eval 
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($r, $mbid, $puid, $inc);
+            my $status = serve_from_db($c, $mbid, $puid, $inc);
             return $status if defined $status;
         }
         undef;
@@ -122,7 +122,7 @@ sub handler
         my $error = "$@";
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
-        $c->response->header("text/plain; charset=utf-8");
+        $c->response->content_type("text/plain; charset=utf-8");
         $c->response->body($error."\015\012"); # unless $r->header_only;
         return RC_INTERNAL_SERVER_ERROR;
     }
@@ -158,14 +158,13 @@ sub serve_from_db
     $mb->Login;
     require MusicBrainz::Server::Track;
 
-    $tr = MusicBrainz::Server::Track->new($mb->{DBH});
-    $tr->SetMBId($mbid);
+    $tr = MusicBrainz::Server::Track->new($mb->{dbh});
+    $tr->mbid($mbid);
     return undef unless $tr->LoadFromId(1);
 
     if ($inc & INC_ARTIST || $inc & INC_RELEASES)
     {
-        $ar = MusicBrainz::Server::Artist->new($mb->{DBH});
-        $ar->SetId($tr->GetArtist);
+        $ar = $tr->artist;
         $ar = undef unless $ar->LoadFromId(1);
     }
 
@@ -283,18 +282,18 @@ sub print_xml_post
     $mb->Login(db => 'READWRITE');
 
     require UserStuff;
-    my $us = UserStuff->new($mb->{DBH});
+    my $us = UserStuff->new($mb->{dbh});
     $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     require Sql;
-    my $sql = Sql->new($mb->{DBH});
+    my $sql = Sql->new($mb->{dbh});
 
     # Check each track and then then adjust the list to have the row id of the track
     require MusicBrainz::Server::Track;
     foreach my $pair (@$links)
     {
-        my $tr = MusicBrainz::Server::Track->new($sql->{DBH});
-        $tr->SetMBId($pair->{trackmbid});
+        my $tr = MusicBrainz::Server::Track->new($sql->{dbh});
+        $tr->mbid($pair->{trackmbid});
         unless ($tr->LoadFromId)
         {
             print STDERR "Unknown MB Track Id: " . $pair->{trackmbid} . "\n";
@@ -321,7 +320,7 @@ sub print_xml_post
                 else { @thistime = @$links; @$links = () }
 
                 my @mods = Moderation->InsertModeration(
-                    DBH => $mb->{DBH},
+                    dbh => $mb->{dbh},
                     uid => $us->GetId,
                     privs => 0, # TODO
                     type => &ModDefs::MOD_ADD_PUIDS,
@@ -354,7 +353,7 @@ sub xml_puid
     $mb->Login;
 
     require Sql;
-    my $sql = Sql->new($mb->{DBH});
+    my $sql = Sql->new($mb->{dbh});
 
     my $rows = $sql->SelectListOfLists("SELECT t.gid, t.name, t.length, t.artist, j.sequence,
                                                a.gid, a.name, a.attributes, a.artist, ar.name, ar.gid, ar.sortname

@@ -36,7 +36,7 @@ use constant SERVE_CRAP_FOR_THESE_MANY_DAYS => 14;
 
 sub handler
 {
-    my ($c) = @_;
+    my ($c, $info) = @_;
     my $r = $c->req;
 
     # URLs are of the form:
@@ -51,12 +51,8 @@ sub handler
     my $mbid = $1 if ($r->path =~ /ws\/1\/release\/([a-z0-9-]*)/);
 
     # Check general arguments
+    my $inc = $info->{inc};
     
-    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
-    if ($bad)
-    {
-        return bad_req($c, "Invalid inc options: '$bad'.");
-    }
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
     {
@@ -118,12 +114,11 @@ sub handler
 
     if (my $st = apply_rate_limit($c)) { return $st }
 
-    my $user = get_user($r->user, $inc); 
     my $status = eval 
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($c, $mbid, $artistid, $cdid, $toc, $inc, $user);
+            my $status = serve_from_db($c, $mbid, $artistid, $cdid, $toc, $inc);
             return $status if defined $status;
         }
         undef;
@@ -257,7 +252,7 @@ sub handler_post
 
 sub serve_from_db
 {
-    my ($c, $mbid, $artistid, $cdid, $toc, $inc, $user) = @_;
+    my ($c, $mbid, $artistid, $cdid, $toc, $inc) = @_;
 
     my $ar;
     my $al;
@@ -314,15 +309,13 @@ sub serve_from_db
     if (@releases && !$ar && !$cdstub && ($inc & INC_ARTIST || $inc & INC_TRACKS))
     {
         $ar = MusicBrainz::Server::Artist->new($mb->{dbh});
-        use Data::Dumper;
         my $rr = $al->artist;
-        print STDERR Dumper($rr);
         $ar->id($al->artist);
         $ar->LoadFromId();
     }
 
     my $printer = sub {
-        print_xml($mbid, $ar, \@releases, $inc, $is_coll, $cdstub, $user);
+        print_xml($mbid, $ar, \@releases, $inc, $is_coll, $cdstub, $c->user);
     };
 
     send_response($c, $printer);

@@ -44,7 +44,7 @@ sub handler
 
     my $user = $r->params->{name};
     # Ensure that the login name is the same as the resource requested
-    if ($r->user ne $user)
+    if ($c->user->name ne $user)
     {
         $c->response->status(RC_FORBIDDEN);
         return RC_FORBIDDEN;
@@ -54,7 +54,7 @@ sub handler
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($c, $user);
+            my $status = serve_from_db($c);
             return $status if defined $status;
         }
         undef;
@@ -80,10 +80,10 @@ sub handler
 
 sub serve_from_db
 {
-    my ($c, $user) = @_;
+    my ($c) = @_;
 
     my $printer = sub {
-        print_xml($user);
+        print_xml($c->user);
     };
 
     send_response($c, $printer);
@@ -99,21 +99,17 @@ sub print_xml
     $mb->Login(db => 'READWRITE');
     require MusicBrainz::Server::Artist;
 
-    require UserStuff;
-    my $us = UserStuff->new($mb->{dbh});
-    $us = $us->newFromName($user) or die "Cannot load user.\n";
-
     my @types;
-    push @types, "AutoEditor" if ($us->IsAutoEditor($us->GetPrivs));
-    push @types, "RelationshipEditor" if $us->IsLinkModerator($us->GetPrivs);
-    push @types, "Bot" if $us->IsBot($us->GetPrivs);
-    push @types, "NotNaggable" if $us->DontNag($us->GetPrivs);
-    my ($nag, $days) = $us->NagCheck;
+    push @types, "AutoEditor" if ($user->IsAutoEditor($user->privs));
+    push @types, "RelationshipEditor" if $user->IsLinkModerator($user->privs);
+    push @types, "Bot" if $user->IsBot($user->GetPrivs);
+    push @types, "NotNaggable" if $user->DontNag($user->GetPrivs);
+    my ($nag, $days) = $user->NagCheck;
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
     print '<metadata xmlns="http://musicbrainz.org/ns/mmd-1.0#" xmlns:ext="http://musicbrainz.org/ns/ext-1.0#">';
     print '<ext:user-list><ext:user type="'. join(' ', @types) . '">';
-    print '<name>'.$user.'</name>';
+    print '<name>'.$user->name.'</name>';
     print '<ext:nag show="' . ($nag ? 'true' : 'false') . '"/>';
     print '</ext:user></ext:user-list>';
     print '</metadata>';

@@ -54,7 +54,6 @@ sub handler
     return bad_req($c, "Only GET or POST is acceptable")
         unless $r->method eq "GET";
 
-    my $user = $r->user;
     my $name = $r->params->{name};
     my $entity = $r->params->{entity};
     my $id = $r->params->{id};
@@ -74,7 +73,7 @@ sub handler
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($c, $user, $entity, $id);
+            my $status = serve_from_db($c, $entity, $id);
             return $status if defined $status;
         }
         undef;
@@ -106,7 +105,6 @@ sub handler_post
     # URLs are of the form:
     # POST http://server/ws/1/rating/?name=<user_name>&entity=<entity>&id=<id>&rating=<rating>
 
-    my $user = $r->user;
     my $entity = $apr->param('entity');
     my $id = $apr->param('id');
     my $rating = $apr->param('rating');
@@ -127,7 +125,7 @@ sub handler_post
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($r, $user, [{entity => $entity, id => $id, rating => $rating}]);
+            my $status = serve_from_db_post($c, [{entity => $entity, id => $id, rating => $rating}]);
             return $status if defined $status;
         }
         undef;
@@ -160,7 +158,6 @@ sub handler_post_multiple
     # URLs are of the form:
     # POST http://server/ws/1/rating/?entity.0=<entity>&id.0=<mbid>&rating.0=<rating>&entity.1=<entity>&id.1=<mbid>&rating.1=<rating>..
 
-    my $user = $r->user;
     my @batch;
 
     # Ensure that we're not a replicated server and that we were given a client version
@@ -198,7 +195,7 @@ sub handler_post_multiple
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($c, $user, \@batch);
+            my $status = serve_from_db_post($c, \@batch);
             return $status if defined $status;
         }
         undef;
@@ -224,10 +221,10 @@ sub handler_post_multiple
 
 sub serve_from_db_post
 {
-    my ($c, $user, $ratings) = @_;
+    my ($c, $ratings) = @_;
 
     my $printer = sub {
-        process_user_input($c, $user, $ratings);
+        process_user_input($c, $ratings);
     };
 
     send_response($c, $printer);
@@ -236,15 +233,11 @@ sub serve_from_db_post
 
 sub process_user_input
 {
-    my ($c, $user, $ratings) = @_;
+    my ($c, $ratings) = @_;
 
     require MusicBrainz;
     my $mb = MusicBrainz->new;
     $mb->Login();
-
-    require UserStuff;
-    my $us = UserStuff->new($mb->{dbh});
-    $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     require Sql;
     my $sql = Sql->new($mb->{dbh});
@@ -280,7 +273,7 @@ sub process_user_input
         } 
 
         my $ratings = MusicBrainz::Server::Rating->new($mb->{dbh});
-        $ratings->Update($rating->{entity}, $obj->GetId, $us->GetId, $rating->{rating});
+        $ratings->Update($rating->{entity}, $obj->id, $c->user->id, $rating->{rating});
     }
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
@@ -296,8 +289,8 @@ sub serve_from_db
     $main->Login();
     my $maindb = Sql->new($main->{dbh});
 
-    require UserStuff;
-    my $user = UserStuff->new($maindb->{dbh});
+    require MusicBrainz::Server::Editor;
+    my $user = MusicBrainz::Server::Editor->new($maindb->{dbh});
     $user = $user->newFromName($user_name) or die "Cannot load user.\n";
 
     require MusicBrainz::Server::Artist;
@@ -329,7 +322,7 @@ sub serve_from_db
     }
 
     my $rt = MusicBrainz::Server::Rating->new($maindb->{dbh});
-    my $rating = $rt->GetUserRatingForEntity($entity_type, $obj->GetId, $user->GetId);
+    my $rating = $rt->GetUserRatingForEntity($entity_type, $obj->id, $user->id);
 
     my $printer = sub {
         print_xml($rating);

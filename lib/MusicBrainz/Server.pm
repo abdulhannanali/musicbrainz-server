@@ -29,6 +29,9 @@ Session
 Session::State::Cookie
 
 Authentication
+
+Cache
+Cache::Memcached
 /;
 
 our $VERSION = '0.01';
@@ -58,6 +61,12 @@ __PACKAGE__->config(
     },
 );
 
+__PACKAGE__->config->{'Plugin::Cache'}{backend} = {
+    class   => "Cache::Memcached::libmemcached",
+    servers => &DBDefs::CACHE_OPTIONS->{servers},
+    debug   => &DBDefs::CACHE_OPTIONS->{debug},
+};
+
 __PACKAGE__->config->{'Plugin::Authentication'} = {
     default_realm => 'moderators',
     realms => {
@@ -69,6 +78,19 @@ __PACKAGE__->config->{'Plugin::Authentication'} = {
             },
             store => {
                 class => '+MusicBrainz::Server::Authentication::Store'
+            }
+        },
+        webservice => { 
+            use_session => 0,
+            credential => { 
+                class =>          'HTTP',
+                type  =>          'digest',
+                password_type  => 'clear',
+                password_field => 'password',
+                username_field => 'username'
+            },
+            store => {
+                class => '+MusicBrainz::Server::Authentication::WebService'
             }
         }
     }

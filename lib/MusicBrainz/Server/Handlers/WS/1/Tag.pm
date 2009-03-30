@@ -29,7 +29,6 @@ package MusicBrainz::Server::Handlers::WS::1::Tag;
 
 use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use MusicBrainz::Server::Handlers::WS::1::Common;
-use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use MusicBrainz::Server::Tag;
 use MusicBrainz::Server::Editor;
 
@@ -55,11 +54,6 @@ sub handler
     return bad_req($c, "Only GET or POST is acceptable")
         unless $r->method eq "GET";
 
-    my $user = $r->user;
-    if (!defined($user) || !$user)
-    {
-        return bad_req($c, "A valid username must be provided to retrieve tags.");
-    }
     my $name = $r->params->{name};
     my $entity = $r->params->{entity};
     my $id = $r->params->{id};
@@ -79,7 +73,7 @@ sub handler
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($c, $user, $entity, $id);
+            my $status = serve_from_db($c, $entity, $id);
             return $status if defined $status;
         }
         undef;
@@ -111,10 +105,10 @@ sub handler_post
     # URLs are of the form:
     # POST http://server/ws/1/tag/?name=<user_name>&entity=<entity>&id=<id>&tags=<tags>
 
-    my $user = $r->user;
     my $entity = $r->params->{entity};
     my $id = $r->param->{id};
     my $tags = $r->params->{tags};
+    my $name = $r->params->{name};
 
     if (!MusicBrainz::Server::Validation::IsGUID($id) || 
         ($entity ne 'artist' && $entity ne 'release' && $entity ne 'track' && $entity ne 'label'))
@@ -123,7 +117,7 @@ sub handler_post
     }
 
     # Ensure that the login name is the same as the resource requested 
-    if ($r->user ne $user)
+    if ($c->user->name ne $name)
     {
         $c->response->status(RC_FORBIDDEN);
         return RC_FORBIDDEN;
@@ -139,7 +133,7 @@ sub handler_post
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($c, $user, [{ entity => $entity, id => $id, tags => $tags}]);
+            my $status = serve_from_db_post($c, [{ entity => $entity, id => $id, tags => $tags}]);
             return $status if defined $status;
         }
         undef;
@@ -172,15 +166,7 @@ sub handler_post_multiple
     # URLs are of the form:
     # POST http://server/ws/1/tag/?entity.0=<entity>&id.0=<mbid>&tags.0=<tags>&entity.1=<entity>&id.1=<mbid>&tags.1=<tags>
 
-    my $user = $r->user;
     my @batch;
-
-    # Ensure that the login name is the same as the resource requested 
-    if ($r->user ne $user)
-    {
-        $c->response->status(RC_FORBIDDEN);
-        return RC_FORBIDDEN;
-    }
 
     # Ensure that we're not a replicated server and that we were given a client version
     if (&DBDefs::REPLICATION_TYPE == &DBDefs::RT_SLAVE)
@@ -217,7 +203,7 @@ sub handler_post_multiple
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($c, $user, \@batch);
+            my $status = serve_from_db_post($c, \@batch);
             return $status if defined $status;
         }
         undef;
@@ -243,10 +229,10 @@ sub handler_post_multiple
 
 sub serve_from_db_post
 {
-    my ($c, $user, $tags) = @_;
+    my ($c, $tags) = @_;
 
     my $printer = sub {
-        print_xml_post($c, $user, $tags);
+        print_xml_post($c, $tags);
     };
 
     send_response($c, $printer);
@@ -255,16 +241,12 @@ sub serve_from_db_post
 
 sub print_xml_post
 {
-    my ($c, $user, $tags) = @_;
+    my ($c, $tags) = @_;
 
     # Login to the tags DB
     require MusicBrainz;
     my $mb = MusicBrainz->new;
     $mb->Login();
-
-    require MusicBrainz::Server::Editor;
-    my $us = MusicBrainz::Server::Editor->new($mb->{dbh});
-    $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     require Sql;
     my $sql = Sql->new($mb->{dbh});
@@ -301,7 +283,7 @@ sub print_xml_post
         } 
 
         my $t = MusicBrainz::Server::Tag->new($mb->{dbh});
-        $t->Update($tag->{tags}, $us->GetId, $tag->{entity}, $obj->GetId);
+        $t->Update($tag->{tags}, $c->user->id, $tag->{entity}, $obj->id);
     }
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
@@ -310,16 +292,12 @@ sub print_xml_post
 
 sub serve_from_db
 {
-    my ($c, $user_name, $entity_type, $entity_id) = @_;
+    my ($c, $entity_type, $entity_id) = @_;
 
     # Login to the main DB
     my $main = MusicBrainz->new;
     $main->Login();
     my $maindb = Sql->new($main->{dbh});
-
-    require MusicBrainz::Server::Editor;
-    my $user = MusicBrainz::Server::Editor->new($maindb->{dbh});
-    $user = $user->newFromName($user_name) or die "Cannot load user.\n";
 
     require MusicBrainz::Server::Artist;
     require MusicBrainz::Server::Release;
@@ -350,7 +328,7 @@ sub serve_from_db
     }
 
     my $tag = MusicBrainz::Server::Tag->new($maindb->{dbh});
-    my $tags = $tag->GetRawTagsForEntity($entity_type, $obj->GetId, $user->GetId);
+    my $tags = $tag->GetRawTagsForEntity($entity_type, $obj->id, $c->user->id);
 
     my $printer = sub {
         print_xml($tags);

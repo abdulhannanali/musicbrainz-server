@@ -4,6 +4,7 @@ use strict;
 use warnings;
 use Catalyst qw(Authentication);
 use MusicBrainz::Server::Handlers::WS::1::Artist;
+use MusicBrainz::Server::Handlers::WS::1::Common;
 use MusicBrainz::Server::Handlers::WS::1::Release;
 use MusicBrainz::Server::Handlers::WS::1::Label;
 use MusicBrainz::Server::Handlers::WS::1::Track;
@@ -13,23 +14,6 @@ use MusicBrainz::Server::Handlers::WS::1::Tag;
 use MusicBrainz::Server::Handlers::WS::1::User;
 
 use base 'MusicBrainz::Server::Controller';
-
-__PACKAGE__->config->{'Plugin::Authentication'} = {
-    default_realm => 'webservice',
-    realms => {
-        webservice => { 
-            credential => { 
-                class => 'HTTP',
-                type  => 'digest',
-                password_type  => 'clear',
-                password_field => 'password'
-            },
-            store => {
-                class => '+MusicBrainz::Server::Authentication::Store'
-            }
-        }
-    }
-};
 
 =head1 NAME
 
@@ -50,7 +34,17 @@ Handle artist related web service queries
 sub artist : Path('artist')
 {
     my ($self, $c) = @_;
-    return MusicBrainz::Server::Handlers::WS::1::Artist::handler($c);
+
+    my ($info, $bad) = parse_inc($c->req->params->{inc} || '');
+    return bad_req($c, "Invalid inc options: '$bad'.") if ($bad);
+
+    # Artist, Label, Release & Track in GET mode don't require authentication
+    # unless user data (tags, ratings) are requested
+    if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
+    {
+        $c->authenticate({}, "webservice");
+    }
+    return MusicBrainz::Server::Handlers::WS::1::Artist::handler($c, $info);
 }
 
 =head2 release
@@ -98,7 +92,8 @@ Handle tag related web service queries
 sub tag : Path('tag')
 {
     my ($self, $c) = @_;
-    $c->authenticate({ realm => "webservice" });
+
+    $c->authenticate({}, "webservice");
     return MusicBrainz::Server::Handlers::WS::1::Tag::handler($c);
 }
 
@@ -111,6 +106,7 @@ Handle user related web service queries
 sub user : Path('user')
 {
     my ($self, $c) = @_;
+    $c->authenticate({}, "webservice");
     return MusicBrainz::Server::Handlers::WS::1::User::handler($c);
 }
 
@@ -123,7 +119,8 @@ Handle rating related web service queries
 sub rating : Path('rating')
 {
     my ($self, $c) = @_;
-    $c->authenticate({ realm => "webservice" });
+
+    $c->authenticate({}, "webservice");
     return MusicBrainz::Server::Handlers::WS::1::Rating::handler($c);
 }
 
@@ -136,7 +133,7 @@ Handle collection related web service queries
 sub collection : Path('collection')
 {
     my ($self, $c) = @_;
-    $c->authenticate({ realm => "webservice" });
+    $c->authenticate({}, "webservice");
     return MusicBrainz::Server::Handlers::WS::1::Collection::handler($c);
 }
 

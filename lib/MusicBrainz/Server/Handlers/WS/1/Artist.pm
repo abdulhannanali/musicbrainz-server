@@ -32,7 +32,7 @@ use MusicBrainz::Server::Handlers::WS::1::Common qw( :DEFAULT apply_rate_limit )
 
 sub handler
 {
-    my ($c) = @_;
+    my ($c, $info) = @_;
     my $r = $c->req;
 
     # URLs are of the form:
@@ -43,19 +43,14 @@ sub handler
         unless $r->method eq "GET";
 
     my $mbid = $1 if ($r->path =~ /ws\/1\/artist\/([a-z0-9-]*)/);
-    my $info;
-    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
-    ($info, $bad) = get_type_and_status_from_inc($bad);
-    if ($bad)
-    {
-        return bad_req($c, "Invalid inc options: '$bad'.");
-    }
+    my $inc = $info->{inc};
+
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
     {
         return bad_req($c, "Invalid content type. Must be set to xml.");
     }
-    if ((!MusicBrainz::Server::Validation::IsGUID($mbid) && $mbid ne '') || $inc eq 'error')
+    if ((!MusicBrainz::Server::Validation::IsGUID($mbid) && $mbid ne ''))
     {
         return bad_req($c, "Incorrect URI.");
     }
@@ -79,11 +74,10 @@ sub handler
 
     if (my $st = apply_rate_limit($c)) { return $st }
 
-    my $user = get_user($r->user, $inc); 
     my $status = eval {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db($c, $mbid, $inc, $info, $user);
+            my $status = serve_from_db($c, $mbid, $inc, $info);
             return $status if defined $status;
         }
         undef;
@@ -109,7 +103,7 @@ sub handler
 
 sub serve_from_db
 {
-    my ($c, $mbid, $inc, $info, $user) = @_;
+    my ($c, $mbid, $inc, $info) = @_;
 
     my $ar;
     my $al;
@@ -130,9 +124,9 @@ sub serve_from_db
         my @list = $alias->load_all($ar->id);
         $info->{aliases} = \@list;  
     }
-    
+
     my $printer = sub {
-        print_xml($mbid, $inc, $ar, $info, $user);
+        print_xml($mbid, $inc, $ar, $info, $c->user);
     };
 
     send_response($c, $printer);

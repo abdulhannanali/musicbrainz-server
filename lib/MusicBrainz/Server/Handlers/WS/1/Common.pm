@@ -23,10 +23,6 @@
 #   $Id: Common.pm 10857 2008-11-24 16:27:34Z luks $
 #____________________________________________________________________________
 
-# TODO: Fix header_only
-# TODO: Fix auth
-# TODO: Fix rate limiting headers
-
 use strict;
 
 package MusicBrainz::Server::Handlers::WS::1::Common;
@@ -35,10 +31,10 @@ my $stash = \%MusicBrainz::Server::Handlers::WS::1::Common::;
 
 require Exporter;
 our @ISA = qw(Exporter);
-our @EXPORT = qw(convert_inc bad_req send_response check_types
+our @EXPORT = qw(parse_inc bad_req send_response check_types
                  xml_artist xml_release xml_track xml_search xml_escape
                  xml_label xml_cdstub get_type_and_status_from_inc 
-                 get_release_type get_user
+                 get_release_type get_user 
 );
 push @EXPORT, grep /^INC_/, keys %$stash;
 our %EXPORT_TAGS = (
@@ -50,7 +46,7 @@ our @EXPORT_OK = qw(
     apply_rate_limit
 );
 
-use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
+use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_UNAUTHORIZED RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use Encode qw( decode encode );
 use MusicBrainz::Server::Release;
 use MusicBrainz::Server::ReleaseEvent;
@@ -171,32 +167,12 @@ my %formatNames =
     MusicBrainz::Server::ReleaseEvent::RELEASE_FORMAT_PIANO_ROLL   => 'PianoRoll',
 );
 
-# Convert the passed inc argument into a bitflag with the given constants form above
-# Return and array of the bitflag and the arguments that were not used.
-sub convert_inc
+# Parse an inc parameter and return a hash that contains keys for type, status, va and inc bitflag field
+sub parse_inc
 {
     my ($inc) = @_;
 
     my $shinc = 0;
-    my @bad;
-    foreach (split ' ', $inc)
-    {
-        if (exists $incShortcuts{$_})
-        {
-            $shinc |= $incShortcuts{$_};
-        }
-        else
-        {
-            push @bad, $_;
-        }
-    }
-    return ($shinc, join(' ', @bad));
-}
-
-sub get_type_and_status_from_inc
-{
-    my ($inc) = @_;
-
     my $type = -1;
     my $va = 0;
     my @bad;
@@ -208,6 +184,10 @@ sub get_type_and_status_from_inc
         if (exists $typeShortcuts{$temp})
         {
             $type = $typeShortcuts{$temp};
+        }
+        elsif (exists $incShortcuts{$t})
+        {
+            $shinc |= $incShortcuts{$t};
         }
         else
         {
@@ -227,7 +207,7 @@ sub get_type_and_status_from_inc
             push @reallybad, $_;
         }
     }
-    return ({ type=>$type, status=>$status, va=>$va }, join(' ', @reallybad));
+    return ({ type=>$type, status=>$status, va=>$va, inc => $shinc }, join(' ', @reallybad));
 }
 
 sub get_user

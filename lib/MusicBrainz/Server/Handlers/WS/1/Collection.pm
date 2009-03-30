@@ -70,8 +70,7 @@ sub handler
     my $sqlraw = Sql->new($mbraw->{dbh});
     my $sqlro = Sql->new($mbro->{dbh});
     
-    # get user id for logged on user
-    my $userId = $sqlro->SelectSingleValue("SELECT id FROM moderator WHERE name = ?", $r->user);
+    my $userId = $c->user->id;
     
     # make sure the user has a collection_info tuple
     MusicBrainz::Server::CollectionInfo::AssureCollectionIdForUser($userId, $mbraw->{dbh});

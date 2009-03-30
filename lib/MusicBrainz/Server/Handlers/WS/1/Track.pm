@@ -32,7 +32,7 @@ use MusicBrainz::Server::Handlers::WS::1::Common qw( :DEFAULT apply_rate_limit )
 
 sub handler
 {
-    my ($c) = @_;
+    my ($c, $info) = @_;
     my $r = $c->req;
 
     # URLs are of the form:
@@ -43,12 +43,8 @@ sub handler
     return handler_post($r) if ($r->method eq "POST");
 
     my $mbid = $1 if ($r->path =~ /ws\/1\/track\/([a-z0-9-]*)/);
+    my $inc = $info->{inc};
 
-    my ($inc, $bad) = convert_inc($r->params->{inc} || '');
-    if ($bad)
-    {
-        return bad_req($c, "Invalid inc options: '$bad'.");
-    }
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
     {
@@ -168,9 +164,8 @@ sub serve_from_db
         $ar = undef unless $ar->LoadFromId(1);
     }
 
-    my $user = get_user($c->req->user, $inc); 
     my $printer = sub {
-        print_xml($mbid, $inc, $ar, $tr, $user);
+        print_xml($mbid, $inc, $ar, $tr, $c->user);
     };
 
     send_response($c, $printer);
@@ -194,7 +189,6 @@ sub handler_post
     # URLs are of the form:
     # http://server/ws/1/puid/?name=<user_name>&client=<client id>&puids=<trackid:puid+trackid:puid>
 
-    my $user = $c->req->user;
     my $name = $c->req->params->{name};
     my @pairs = $c->req->params->{puid};
     my $client = $c->req->params->{client};
@@ -221,7 +215,7 @@ sub handler_post
     }
 
     # Ensure that the login name is the same as the resource requested 
-    if ($name ne $user)
+    if ($name ne $c->user->name)
     {
         $c->response->status(RC_FORBIDDEN);
         return RC_FORBIDDEN;
@@ -237,7 +231,7 @@ sub handler_post
     {
         # Try to serve the request from the database
         {
-            my $status = serve_from_db_post($c, $user, $client, \@puids);
+            my $status = serve_from_db_post($c, $client, \@puids);
             return $status if defined $status;
         }
         undef;
@@ -263,10 +257,10 @@ sub handler_post
 
 sub serve_from_db_post
 {
-    my ($c, $user, $client, $puids) = @_;
+    my ($c, $client, $puids) = @_;
 
     my $printer = sub {
-        print_xml_post($user, $client, $puids);
+        print_xml_post($c->user, $client, $puids);
     };
 
     send_response($c, $printer);
@@ -280,10 +274,6 @@ sub print_xml_post
     require MusicBrainz;
     my $mb = MusicBrainz->new;
     $mb->Login(db => 'READWRITE');
-
-    require UserStuff;
-    my $us = UserStuff->new($mb->{dbh});
-    $us = $us->newFromName($user) or die "Cannot load user.\n";
 
     require Sql;
     my $sql = Sql->new($mb->{dbh});
@@ -300,7 +290,7 @@ sub print_xml_post
         } 
         else 
         {
-            $pair->{trackid} = $tr->GetId;
+            $pair->{trackid} = $tr->id;
         }
     }
 
@@ -321,7 +311,7 @@ sub print_xml_post
 
                 my @mods = Moderation->InsertModeration(
                     dbh => $mb->{dbh},
-                    uid => $us->GetId,
+                    uid => $user->id,
                     privs => 0, # TODO
                     type => &ModDefs::MOD_ADD_PUIDS,
                     # --

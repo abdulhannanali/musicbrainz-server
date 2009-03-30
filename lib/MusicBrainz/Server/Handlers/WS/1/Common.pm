@@ -34,7 +34,7 @@ our @ISA = qw(Exporter);
 our @EXPORT = qw(parse_inc bad_req send_response check_types
                  xml_artist xml_release xml_track xml_search xml_escape
                  xml_label xml_cdstub get_type_and_status_from_inc 
-                 get_release_type get_user 
+                 get_release_type 
 );
 push @EXPORT, grep /^INC_/, keys %$stash;
 our %EXPORT_TAGS = (
@@ -208,24 +208,6 @@ sub parse_inc
         }
     }
     return ({ type=>$type, status=>$status, va=>$va, inc => $shinc }, join(' ', @reallybad));
-}
-
-sub get_user
-{
-    my ($username, $inc) = @_;
-
-    my $user = undef;
-    if ($inc & INC_USER_TAGS || $inc & INC_USER_RATINGS)
-    {
-        require MusicBrainz;
-        my $mb = MusicBrainz->new;
-        $mb->Login(db => 'READWRITE');
-
-        require MusicBrainz::Server::Editor;
-        $user = MusicBrainz::Server::Editor->new($mb->{dbh});
-        $user = $user->newFromName($username) or die "Cannot load user.\n";
-    }
-    return $user;
 }
 
 sub bad_req

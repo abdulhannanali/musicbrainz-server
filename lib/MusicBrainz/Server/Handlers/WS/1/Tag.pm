@@ -82,8 +82,8 @@ sub handler
     if ($@)
     {
         my $error = "$@";
-        print STDERR "WS Error: $error\n";
-        # TODO: We should print a custom 500 server error screen with details about our error and where to report it
+        $c->log->warn("WS Error: $error\n");
+        $c->response->body("An error occurred while trying to handle this request. ($error)\r\n");
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         return RC_INTERNAL_SERVER_ERROR;
     }
@@ -145,7 +145,7 @@ sub handler_post
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         $r->content_type("text/plain; charset=utf-8");
-        $c->response->body($error."\015\012"); # unless $r->header_only;
+        $c->response->body($error."\015\012");
         return RC_INTERNAL_SERVER_ERROR
     }
     if (!defined $status)
@@ -215,7 +215,7 @@ sub handler_post_multiple
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         $r->content_type("text/plain; charset=utf-8");
-        $c->response->body($error."\015\012"); # unless $r->header_only;
+        $c->response->body($error."\015\012");
         return RC_INTERNAL_SERVER_ERROR
     }
     if (!defined $status)

@@ -116,10 +116,10 @@ sub handler
     if ($@)
     {
         my $error = "$@";
-        print STDERR "WS Error: $error\n";
+        $c->log->warn("WS Error: $error\n");
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         $c->response->content_type("text/plain; charset=utf-8");
-        $c->response->body($error."\015\012"); # unless $r->header_only;
+        $c->response->body($error."\015\012");
         return RC_INTERNAL_SERVER_ERROR;
     }
     if (!defined $status)
@@ -243,7 +243,7 @@ sub handler_post
         print STDERR "WS Error: $error\n";
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         $c->response->content_type("text/plain; charset=utf-8");
-        $c->response->body($error."\015\012"); # unless $r->header_only;
+        $c->response->body($error."\015\012");
         return RC_INTERNAL_SERVER_ERROR
     }
     if (!defined $status)
@@ -312,7 +312,7 @@ sub print_xml_post
                 my @mods = Moderation->InsertModeration(
                     dbh => $mb->{dbh},
                     uid => $user->id,
-                    privs => 0, # TODO
+                    privs => $user->privs,
                     type => &ModDefs::MOD_ADD_PUIDS,
                     # --
                     client => $client,

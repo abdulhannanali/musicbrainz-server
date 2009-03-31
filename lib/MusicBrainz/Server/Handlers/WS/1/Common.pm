@@ -53,6 +53,8 @@ use MusicBrainz::Server::ReleaseEvent;
 use MusicBrainz::Server::Country;
 use MusicBrainz::Server::LuceneSearch;
 
+use constant MAX_TAGS_PER_REQUEST => 100;
+
 use constant INC_ARTIST       => 0x0000001;
 use constant INC_COUNTS       => 0x0000002;
 use constant INC_LIMIT        => 0x0000004;
@@ -216,7 +218,7 @@ sub bad_req
 
     $c->response->status(RC_BAD_REQUEST);
     $c->response->content_type("text/plain; charset=utf-8");
-    $c->response->body($error."\nFor usage, please see: http://musicbrainz.org/development/mmd\015\012"); # unless $r->header_only;
+    $c->response->body($error."\nFor usage, please see: http://musicbrainz.org/development/mmd\015\012"); 
     return RC_OK;
 }
 
@@ -225,7 +227,7 @@ sub service_unavail
     my ($c, $error) = @_;
     $c->response->status(RC_SERVICE_UNAVAILABLE);
     $c->response->content_type("text/plain; charset=utf-8");
-    $c->response->body($error."\015\012"); # unless $r->header_only;
+    $c->response->body($error."\015\012");
     return RC_OK;
 }
 
@@ -235,14 +237,10 @@ sub rate_limited
 {
     my ($c, $t) = @_;
     $c->response->status(RC_SERVICE_UNAVAILABLE);
-#$r->headers_out->add("X-Rate-Limited", sprintf("%.1f %.1f %d", $t->rate, $t->limit, $t->period));
+    $c->response->headers->header("X-Rate-Limited", sprintf("%.1f %.1f %d", $t->rate, $t->limit, $t->period));
     $c->response->content_type("text/plain; charset=utf-8");
-    unless (0) #$r->header_only)
-    {
-        # FIX ME
-        $c->response->body("Your requests are exceeding the allowable rate limit (" . $t->msg . ")\015\012");
-        $c->response->body("Please see http://wiki.musicbrainz.org/XMLWebService for more information.\015\012");
-    }
+    $c->response->body("Your requests are exceeding the allowable rate limit (" . $t->msg . ")\015\012" .
+                       "Please see http://wiki.musicbrainz.org/XMLWebService for more information.\015\012");
     return RC_OK;
 }
 
@@ -284,7 +282,7 @@ sub send_response
     $c->response->status(RC_OK);
     $c->response->content_length(length($xml));
     $c->response->content_type("text/xml; charset=utf-8");
-    $c->response->body($xml); # unless $r->header_only;
+    $c->response->body($xml);
 }
 
 sub xml_artist
@@ -439,7 +437,7 @@ sub xml_release_events
     require MusicBrainz::Server::Country;
 
     my ($al, $inc) = @_;
-    my (@releases) = $al->release_events(($inc & INC_LABELS) ? 1 : 0);
+    my (@releases) = $al->ReleaseEvents(($inc & INC_LABELS) ? 1 : 0);
     my $country_obj = MusicBrainz::Server::Country->new($al->{dbh})
        if @releases;
     
@@ -456,11 +454,11 @@ sub xml_release_events
         {
             my $cid = $rel->country;
             my $c = $country_obj->newFromId($cid);
-            my ($year, $month, $day) = $rel->ymd();
+            my ($year, $month, $day) = $rel->date();
             my ($releasedate) = $year;
             $releasedate .= sprintf "-%02d", $month if ($month != 0);
             $releasedate .= sprintf "-%02d", $day if ($day != 0);
-            my ($editpending) = ($rel->mod_pending ? 'editpending="1"' : '');
+            my ($editpending) = ($rel->has_mod_pending ? 'editpending="1"' : '');
 
             # create a releasedate element
             print '<event';
@@ -471,7 +469,7 @@ sub xml_release_events
                 print '"';
             }
             print ' country="'; 
-            print ($c ? $c->iso_code : "?");
+            print ($c ? $c->GetISOCode : "?");
             print '"';
             printf ' catalog-number="%s"', xml_escape($rel->cat_no) if $rel->cat_no;
             printf ' barcode="%s"', xml_escape($rel->barcode) if $rel->barcode;
@@ -479,11 +477,7 @@ sub xml_release_events
             if (($inc & INC_LABELS) && $rel->label)
             {
                 print '>';
-                my $label = MusicBrainz::Server::Label->new($rel->{dbh});
-                $label->id($rel->label);
-                $label->mbid($rel->label_mbid);
-                $label->SetName($rel->label_name);
-                xml_label($label, $inc);
+                xml_label($rel->label, $inc);
                 print '</event>';
             }
             else
@@ -689,8 +683,7 @@ sub xml_tags
 
     my $tag = MusicBrainz::Server::Tag->new($dbh);
 
-    # TODO: What should we use for a limit?
-    my $tags = $tag->GetTagsForEntity($entity, $id, 100);
+    my $tags = $tag->GetTagsForEntity($entity, $id, MAX_TAGS_PER_REQUEST);
 
     return undef if (scalar(@$tags) == 0);
 
@@ -1171,7 +1164,7 @@ sub xml_search
     $c->response->status(RC_OK);
     $c->response->content_length(length($out));
     $c->response->content_type("text/xml; charset=utf-8");
-    $c->response->body($out); # unless $r->header_only;
+    $c->response->body($out);
     return RC_OK;
 }
 

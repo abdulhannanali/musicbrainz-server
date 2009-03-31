@@ -91,7 +91,7 @@ sub handler
         my $release = $r->params->{release} || "";
         my $query = $r->params->{query} || "";
         my $offset = $r->params->{offset} || 0;
-        my ($info, $bad) = get_type_and_status_from_inc($r->params->{releasetypes} or "");
+        my ($info, $bad) = parse_inc($r->params->{releasetypes} or "");
 
         my $limit = $r->params->{limit};
         $limit = 25 if ($limit < 1 || $limit > 100);
@@ -127,7 +127,7 @@ sub handler
     if ($@)
     {
         my $error = "$@";
-        print STDERR "WS Error: $error\n";
+        $c->log->warn("WS Error: $error\n");
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         return RC_INTERNAL_SERVER_ERROR;
     }
@@ -194,7 +194,7 @@ sub handler_post
     my %check = MusicBrainz::Server::CDTOC::ParseTOC(undef, $toc);
     if ($check{discid} ne $discid)
     {
-        print STDERR "$check{discid} does not match provided discid\n";
+        $c->log->warn("WS Error: $check{discid} does not match provided discid\n");
         return bad_req($c, "Incorrect discid provided for toc.");
     }
 

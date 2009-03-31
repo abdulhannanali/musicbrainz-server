@@ -37,6 +37,7 @@ sub artist : Path('artist')
 
     my ($info, $bad) = parse_inc($c->req->params->{inc} || '');
     return bad_req($c, "Invalid inc options: '$bad'.") if ($bad);
+    return bad_req($c, "HEAD not supported yet") if ($c->req->method eq "HEAD");
 
     # Artist, Label, Release & Track in GET mode don't require authentication
     # unless user data (tags, ratings) are requested
@@ -44,7 +45,7 @@ sub artist : Path('artist')
     {
         $c->authenticate({}, "webservice");
     }
-    return MusicBrainz::Server::Handlers::WS::1::Artist::handler($c, $info);
+    MusicBrainz::Server::Handlers::WS::1::Artist::handler($c, $info);
 }
 
 =head2 release
@@ -56,7 +57,18 @@ Handle release related web service queries
 sub release : Path('release')
 {
     my ($self, $c) = @_;
-    return MusicBrainz::Server::Handlers::WS::1::Release::handler($c);
+
+    my ($info, $bad) = parse_inc($c->req->params->{inc} || '');
+    return bad_req($c, "Invalid inc options: '$bad'.") if ($bad);
+    return bad_req($c, "HEAD not supported yet") if ($c->req->method eq "HEAD");
+
+    # Artist, Label, Release & Track in GET mode don't require authentication
+    # unless user data (tags, ratings) are requested
+    if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
+    {
+        $c->authenticate({}, "webservice");
+    }
+    MusicBrainz::Server::Handlers::WS::1::Release::handler($c, $info);
 }
 
 =head2 track
@@ -68,7 +80,18 @@ Handle track related web service queries
 sub track : Path('track')
 {
     my ($self, $c) = @_;
-    return MusicBrainz::Server::Handlers::WS::1::Track::handler($c);
+
+    my ($info, $bad) = parse_inc($c->req->params->{inc} || '');
+    return bad_req($c, "Invalid inc options: '$bad'.") if ($bad);
+    return bad_req($c, "HEAD not supported yet") if ($c->req->method eq "HEAD");
+
+    # Artist, Label, Release & Track in GET mode don't require authentication
+    # unless user data (tags, ratings) are requested
+    if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
+    {
+        $c->authenticate({}, "webservice");
+    }
+    MusicBrainz::Server::Handlers::WS::1::Track::handler($c, $info);
 }
 
 =head2 label
@@ -80,7 +103,18 @@ Handle label related web service queries
 sub label : Path('label')
 {
     my ($self, $c) = @_;
-    return MusicBrainz::Server::Handlers::WS::1::Label::handler($c);
+
+    my ($info, $bad) = parse_inc($c->req->params->{inc} || '');
+    return bad_req($c, "Invalid inc options: '$bad'.") if ($bad);
+    return bad_req($c, "HEAD not supported yet") if ($c->req->method eq "HEAD");
+
+    # Artist, Label, Release & Track in GET mode don't require authentication
+    # unless user data (tags, ratings) are requested
+    if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
+    {
+        $c->authenticate({}, "webservice");
+    }
+    MusicBrainz::Server::Handlers::WS::1::Label::handler($c, $info);
 }
 
 =head2 tag
@@ -94,7 +128,7 @@ sub tag : Path('tag')
     my ($self, $c) = @_;
 
     $c->authenticate({}, "webservice");
-    return MusicBrainz::Server::Handlers::WS::1::Tag::handler($c);
+    MusicBrainz::Server::Handlers::WS::1::Tag::handler($c);
 }
 
 =head2 user
@@ -107,7 +141,7 @@ sub user : Path('user')
 {
     my ($self, $c) = @_;
     $c->authenticate({}, "webservice");
-    return MusicBrainz::Server::Handlers::WS::1::User::handler($c);
+    MusicBrainz::Server::Handlers::WS::1::User::handler($c);
 }
 
 =head2 rating
@@ -121,7 +155,7 @@ sub rating : Path('rating')
     my ($self, $c) = @_;
 
     $c->authenticate({}, "webservice");
-    return MusicBrainz::Server::Handlers::WS::1::Rating::handler($c);
+    MusicBrainz::Server::Handlers::WS::1::Rating::handler($c);
 }
 
 =head2 collection
@@ -134,7 +168,7 @@ sub collection : Path('collection')
 {
     my ($self, $c) = @_;
     $c->authenticate({}, "webservice");
-    return MusicBrainz::Server::Handlers::WS::1::Collection::handler($c);
+    MusicBrainz::Server::Handlers::WS::1::Collection::handler($c);
 }
 
 1;

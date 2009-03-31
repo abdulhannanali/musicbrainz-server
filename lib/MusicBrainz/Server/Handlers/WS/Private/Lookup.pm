@@ -45,7 +45,7 @@ sub handler
 	return bad_req($c, "Only GET is acceptable")
 		unless $r->method eq "GET";
 	return bad_req($c, "uri contains extra components")
-		unless $r->path eq "/ws/priv/lookup";
+		unless $r->path eq "ws/priv/lookup";
 
 	# extract the arguments from the args hash.
 	my $entitytype = $r->params->{"entitytype"};
@@ -70,22 +70,18 @@ sub handler
 	}
 
 	eval {
-		my $status = serve_from_db($r, $entitytype, $query, $callid);
+		my $status = serve_from_db($c, $entitytype, $query, $callid);
 		return $status if defined $status;
 	};
 
-
-#	if ($@)
-#	{
-#		my $error = "$@";
-#		$c->response->status(RC_INTERNAL_SERVER_ERROR);
-#		$c->response->header("text/plain; charset=utf-8");
-#		$c->response->body($error."\015\012"); # unless $r->header_only;
-#		return RC_OK;
-#	}
-#
-#	# Damn.
-#	return RC_INTERNAL_SERVER_ERROR;
+	if ($@)
+	{
+		my $error = "$@";
+		$c->response->status(RC_INTERNAL_SERVER_ERROR);
+		$c->response->header("text/plain; charset=utf-8");
+		$c->response->body($error."\015\012");
+		return RC_OK;
+	}
 }
 
 sub bad_req
@@ -93,7 +89,7 @@ sub bad_req
 	my ($c, $error) = @_;
 	$c->response->status(RC_BAD_REQUEST);
 	$c->response->header("text/plain; charset=utf-8");
-	$c->response->body($error."\015\012"); # unless $r->header_only;
+	$c->response->body($error."\015\012");
 	return RC_OK;
 }
 
@@ -106,7 +102,7 @@ sub serve_from_db
 	$mb->Login;
 
 	# retrieve the list of entitiesmatching the query $query
-	my $engine = SearchEngine->new($mb->{DBH}, $entitytype);
+	my $engine = SearchEngine->new($mb->{dbh}, $entitytype);
 	$engine->Search(
 		query => $query,
 		limit => 0,

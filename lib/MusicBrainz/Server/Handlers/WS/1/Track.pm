@@ -45,6 +45,8 @@ sub handler
     my $mbid = $1 if ($r->path =~ /ws\/1\/track\/([a-z0-9-]*)/);
     my $inc = $info->{inc};
 
+    return bad_req($c, "Cannot include track in inc options for a track query.") if ($inc & INC_TRACKS);
+
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
     {
@@ -178,7 +180,7 @@ sub print_xml
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
     print '<metadata xmlns="http://musicbrainz.org/ns/mmd-1.0#">';
-    print xml_track($ar, $tr, $inc, $user);
+    xml_track($ar, $tr, $inc, $user);
     print '</metadata>';
 }
 
@@ -362,7 +364,7 @@ sub xml_puid
         print "</metadata>";
         return;
     }
-    print "<track-list>";
+    printf '<track-list count="%s">', scalar(@$rows);
     for my $row (@$rows)
     {
         printf '<track id="%s"', $row->[0];

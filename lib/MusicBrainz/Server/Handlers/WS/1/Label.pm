@@ -44,6 +44,7 @@ sub handler
 
     my $mbid = $1 if ($r->path =~ /ws\/1\/label\/([a-z0-9-]*)/);
     my $inc = $info->{inc};
+    return bad_req($c, "Cannot include label in inc options for a label query.") if ($inc & INC_LABELS);
 
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
@@ -118,7 +119,7 @@ sub serve_from_db
     if ($inc & INC_ALIASES) {
         require MusicBrainz::Server::Alias;
         my $alias = MusicBrainz::Server::Alias->new($mb->{dbh}, "LabelAlias");
-        my @list = $alias->GetList($ar->id);
+        my @list = $alias->load_all($ar->id);
         $info->{aliases} = \@list;
     }
 
@@ -136,7 +137,7 @@ sub print_xml
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
     print '<metadata xmlns="http://musicbrainz.org/ns/mmd-1.0#">';
-    print xml_label($ar, $inc, $info, $user);
+    xml_label($ar, $inc, $info, $user);
     print '</metadata>';
 }
 

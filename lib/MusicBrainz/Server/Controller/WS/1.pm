@@ -127,7 +127,10 @@ sub tag : Path('tag')
 {
     my ($self, $c) = @_;
 
-    $c->authenticate({}, "webservice");
+    if ($c->req->method eq "POST")
+    {
+        $c->authenticate({}, "webservice");
+    }
     MusicBrainz::Server::Handlers::WS::1::Tag::handler($c);
 }
 

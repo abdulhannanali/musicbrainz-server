@@ -52,6 +52,7 @@ sub handler
 
     # Check general arguments
     my $inc = $info->{inc};
+    return bad_req($c, "Cannot include release in inc options for a release query.") if ($inc & INC_RELEASES);
     
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
@@ -148,12 +149,12 @@ sub handler_post
     # POST http://server/ws/1/release/?client=<client>&title=<title>&artist=<sa-artist>&toc=<toc>&discid=<discid>&barcode=<barcode>&comment=<comment>&track0=<track1>&track1=<track1>...
     # POST http://server/ws/1/release/?client=<client>&title=<title>&toc=<toc>&discid=<discid>&barcode=<barcode>&comment=<comment>&track0=<track0>&artist0=<artist1>&track1=<track1>...
 
-    my $title = $c->params->{title};
-    my $discid = $c->params->{discid};
-    my $toc = $c->params->{toc};
-    my $barcode = $c->params->{barcode};
-    my $comment = $c->params->{comment};
-    my $client = $c->params->{client};
+    my $title = $c->req->params->{title};
+    my $discid = $c->req->params->{discid};
+    my $toc = $c->req->params->{toc};
+    my $barcode = $c->req->params->{barcode};
+    my $comment = $c->req->params->{comment};
+    my $client = $c->req->params->{client};
 
     if (!defined($client) || $client eq '')
     {
@@ -168,19 +169,19 @@ sub handler_post
 
     my (@artists, @tracks);
     my ($tmp, $num);;
-    my $artist = $c->params->{artist};
+    my $artist = $c->req->params->{artist};
 
     $num = 0;
     for(0..98)
     {
-        $tmp = $c->params->{"track$_"};
+        $tmp = $c->req->params->{"track$_"};
         $tmp =~ s/^\s*?(.*?)\s*$/$1/;
         last if (!$tmp);
 
         my $data = { title => $tmp };
         $num++;
 
-        $tmp = $c->params->{"artist$_"};
+        $tmp = $c->req->params->{"artist$_"};
         if ($tmp)
         {
             $tmp =~ s/^\s*?(.*?)\s*$/$1/;
@@ -209,7 +210,7 @@ sub handler_post
     $mb->Login;
 
     my $rcdtoc = MusicBrainz::Server::ReleaseCDTOC->new($mb->{dbh});
-    my $releaseids = $rcdtoc->GetReleaseIDsFromDiscID($discid);
+    my $releaseids = $rcdtoc->release_ids_from_discid($discid);
     if (scalar(@$releaseids))
     {
         return bad_req($c, "A MusicBrainz release already exists with this discid.");

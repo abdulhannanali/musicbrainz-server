@@ -83,7 +83,7 @@ sub handler
     {
         my $error = "$@";
         $c->log->warn("WS Error: $error\n");
-        $c->response->body("An error occurred while trying to handle this request. ($error)\r\n");
+        $c->response->body("An error occurred while trying to handle this request: $error\r\n");
         $c->response->status(RC_INTERNAL_SERVER_ERROR);
         return RC_INTERNAL_SERVER_ERROR;
     }
@@ -106,9 +106,8 @@ sub handler_post
     # POST http://server/ws/1/tag/?name=<user_name>&entity=<entity>&id=<id>&tags=<tags>
 
     my $entity = $r->params->{entity};
-    my $id = $r->param->{id};
+    my $id = $r->params->{id};
     my $tags = $r->params->{tags};
-    my $name = $r->params->{name};
 
     if (!MusicBrainz::Server::Validation::IsGUID($id) || 
         ($entity ne 'artist' && $entity ne 'release' && $entity ne 'track' && $entity ne 'label'))
@@ -116,17 +115,14 @@ sub handler_post
         return bad_req($c, "Invalid MBID/entity.");
     }
 
-    # Ensure that the login name is the same as the resource requested 
-    if ($c->user->name ne $name)
-    {
-        $c->response->status(RC_FORBIDDEN);
-        return RC_FORBIDDEN;
-    }
-
     # Ensure that we're not a replicated server and that we were given a client version
     if (&DBDefs::REPLICATION_TYPE == &DBDefs::RT_SLAVE)
     {
         return bad_req($c, "You cannot submit tags to a slave server.");
+    }
+    if (!defined $tags || $tags eq '')
+    {
+        return bad_req($c, "No tags submitted in request.");
     }
 
     my $status = eval 
@@ -307,28 +303,28 @@ sub serve_from_db
     my $obj;
     if ($entity_type eq 'artist')
     {
-        $obj = MusicBrainz::Server::Artist->new($maindb->{dbh});
+        $obj = MusicBrainz::Server::Artist->new($main->dbh);
     }
     elsif ($entity_type eq 'release')
     {
-        $obj = MusicBrainz::Server::Release->new($maindb->{dbh});
+        $obj = MusicBrainz::Server::Release->new($main->dbh);
     }
     elsif ($entity_type eq 'track')
     {
-        $obj = MusicBrainz::Server::Track->new($maindb->{dbh});
+        $obj = MusicBrainz::Server::Track->new($main->dbh);
     }
     elsif ($entity_type eq 'label')
     {
-        $obj = MusicBrainz::Server::Label->new($maindb->{dbh});
+        $obj = MusicBrainz::Server::Label->new($main->dbh);
     }
     $obj->mbid($entity_id);
     unless ($obj->LoadFromId)
     {
-        die "Cannot load entity. Bad entity id given?"
+        die "Cannot load entity. Bad entity id given?\n"
     }
 
     my $tag = MusicBrainz::Server::Tag->new($maindb->{dbh});
-    my $tags = $tag->GetRawTagsForEntity($entity_type, $obj->id, $c->user->id);
+    my $tags = $tag->GetTagsForEntity($entity_type, $obj->id);
 
     my $printer = sub {
         print_xml($tags);
@@ -344,12 +340,15 @@ sub print_xml
 
     print '<?xml version="1.0" encoding="UTF-8"?>';
     print '<metadata xmlns="http://musicbrainz.org/ns/mmd-1.0#">';
-    print '<tag-list>' if (scalar(@$tags) > 1);
+    print '<tag-list>';
+
     foreach my $t (@$tags)
     {
-        print '<tag>' . xml_escape($t->{name}) . '</tag>';
+        print '<tag>';
+        print xml_escape($t->{name});
+        print '</tag>';
     }
-    print '</tag-list>' if (scalar(@$tags) > 1);
+    print '</tag-list>';
     print '</metadata>';
 }
 

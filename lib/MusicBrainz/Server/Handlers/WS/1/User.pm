@@ -100,10 +100,10 @@ sub print_xml
     require MusicBrainz::Server::Artist;
 
     my @types;
-    push @types, "AutoEditor" if ($user->IsAutoEditor($user->privs));
-    push @types, "RelationshipEditor" if $user->IsLinkModerator($user->privs);
-    push @types, "Bot" if $user->IsBot($user->GetPrivs);
-    push @types, "NotNaggable" if $user->DontNag($user->GetPrivs);
+    push @types, "AutoEditor" if ($user->is_auto_editor($user->privs));
+    push @types, "RelationshipEditor" if $user->is_link_moderator($user->privs);
+    push @types, "Bot" if $user->is_bot($user->privs);
+    push @types, "NotNaggable" if $user->dont_nag($user->privs);
     my ($nag, $days) = $user->NagCheck;
 
     print '<?xml version="1.0" encoding="UTF-8"?>';

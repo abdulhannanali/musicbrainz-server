@@ -477,7 +477,9 @@ sub xml_release_events
             if (($inc & INC_LABELS) && $rel->label)
             {
                 print '>';
-                xml_label($rel->label, $inc);
+                my $l = $rel->label;
+                $l->LoadFromId();
+                xml_label($l, $inc);
                 print '</event>';
             }
             else
@@ -505,7 +507,7 @@ sub xml_discs
         print "<disc-list>";
         foreach my $id (@ids)
         {
-            my ($cdtoc) = $id->cdtoc;
+            my ($cdtoc) = $id->GetCDTOC;
             my ($sectors) = $cdtoc->leadout_offset;
             my ($discid) = $cdtoc->disc_id;
 
@@ -540,11 +542,11 @@ sub xml_track_list
             return undef;
         }
 
-        print '<track-list>';
+        printf '<track-list count="%s"/>', scalar(@$tracks);
         foreach my $tr (@$tracks)
         {
 
-            if ($ar->id != $tr->artist)
+            if ($ar->id != $tr->artist->id)
             {
                 my $ar = $tr->artist;
                 $ar->LoadFromId();
@@ -587,7 +589,7 @@ sub xml_track
             foreach my $i (@albums)
             {
                 $al->mbid($i->[3]);
-                if ($al->LoadFromId())
+                if ($al->LoadFromId($inc & INC_RELEASEREL)) 
                 {
                     xml_release($ar, $al, 0, $i->[2], undef, $user) 
                 }
@@ -628,26 +630,26 @@ sub xml_puid
 
 sub xml_label
 {
-    my ($ar, $inc, $info, $user) = @_;
+    my ($la, $inc, $info, $user) = @_;
 
-    printf '<label id="%s"', $ar->mbid;
-    if ($ar->type)
+    printf '<label id="%s"', $la->mbid;
+    if ($la->type)
     {
-        my $name = &MusicBrainz::Server::Label::type_name($ar->type);
+        my $name = &MusicBrainz::Server::Label::type_name($la->type);
         $name =~ s/(^|[^A-Za-z0-9])+([A-Za-z0-9]?)/uc $2/eg;
         printf ' type="%s"', $name;
     }
-    print '><name>' . xml_escape($ar->name) . '</name>';
-    print '<sort-name>' . xml_escape($ar->sort_name) . '</sort-name>';
-    print '<label-code>' . xml_escape($ar->label_code) . '</label-code>' if $ar->label_code;
-    print '<disambiguation>' . xml_escape($ar->resolution) . '</disambiguation>' if ($ar->resolution);
-    if ($ar->country)
+    print '><name>' . xml_escape($la->name) . '</name>';
+    print '<sort-name>' . xml_escape($la->sort_name) . '</sort-name>';
+    print '<label-code>' . xml_escape($la->label_code) . '</label-code>' if $la->label_code;
+    print '<disambiguation>' . xml_escape($la->resolution) . '</disambiguation>' if ($la->resolution);
+    if ($la->country)
     {
-        my $c = MusicBrainz::Server::Country->newFromId($ar->dbh, $ar->country);
+        my $c = MusicBrainz::Server::Country->newFromId($la->dbh, $la->country);
         print '<country>' . xml_escape($c->GetISOCode) . '</country>';
     }
     
-    my ($b, $e) = ($ar->begin_date, $ar->end_date);
+    my ($b, $e) = ($la->begin_date, $la->end_date);
     if ($b|| $e)
     {
         print '<life-span';
@@ -666,11 +668,11 @@ sub xml_label
            print '</alias-list>';
    }
 
-    xml_relations($ar, 'label', $inc) if ($inc & INC_ARTISTREL || $inc & INC_LABELREL || $inc & INC_RELEASEREL || $inc & INC_TRACKREL || $inc & INC_URLREL);
-    xml_tags($ar->{dbh}, 'label', $ar->id) if ($inc & INC_TAGS);
-    xml_user_tags($ar->{dbh}, 'label', $ar->id, $user) if ($inc & INC_USER_TAGS);
-    xml_rating($ar->{dbh}, 'label', $ar->id) if ($inc & INC_RATINGS);
-    xml_user_rating($ar->{dbh}, 'label', $ar->id, $user) if ($inc & INC_USER_RATINGS);
+    xml_relations($la, 'label', $inc) if ($inc & INC_ARTISTREL || $inc & INC_LABELREL || $inc & INC_RELEASEREL || $inc & INC_TRACKREL || $inc & INC_URLREL);
+    xml_tags($la->{dbh}, 'label', $la->id) if ($inc & INC_TAGS);
+    xml_user_tags($la->{dbh}, 'label', $la->id, $user) if ($inc & INC_USER_TAGS);
+    xml_rating($la->{dbh}, 'label', $la->id) if ($inc & INC_RATINGS);
+    xml_user_rating($la->{dbh}, 'label', $la->id, $user) if ($inc & INC_USER_RATINGS);
     print "</label>";
 
     return undef;
@@ -956,7 +958,8 @@ sub xml_cdstub
 
     print '<release><title>' . xml_escape($cd->{title}) . '</title>';
     print '<artist><name>'. xml_escape($cd->{artist}) . '</name></artist>' if ($cd->{artist});
-    print '<track-list>';
+
+    printf '<track-list count="%s"/>', scalar(@{$cd->{tracks}});
     foreach my $tr (@{$cd->{tracks}})
     {
         print '<track><title>' . xml_escape($tr->{title}) . '</title>';
@@ -1171,6 +1174,8 @@ sub xml_search
 sub xml_escape
 {
     my $t = $_[0];
+
+    return undef if (!defined $t);
 
     # Remove control characters as they cause XML to not be parsed
     $t =~ s/[\x00-\x08\x0A-\x0C\x0E-\x1A]//g;

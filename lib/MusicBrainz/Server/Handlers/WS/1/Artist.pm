@@ -45,6 +45,8 @@ sub handler
     my $mbid = $1 if ($r->path =~ /ws\/1\/artist\/([a-z0-9-]*)/);
     my $inc = $info->{inc};
 
+    return bad_req($c, "Cannot include artist in inc options for an artist query.") if ($inc & INC_ARTIST);
+
     my $type = $r->params->{type};
     if (!defined($type) || $type ne 'xml')
     {

@@ -100,14 +100,13 @@ sub handler_post
 {
     my $c = shift;
     my $r = $c->req;
-    my $apr = shift;
 
     # URLs are of the form:
     # POST http://server/ws/1/rating/?name=<user_name>&entity=<entity>&id=<id>&rating=<rating>
 
-    my $entity = $apr->param('entity');
-    my $id = $apr->param('id');
-    my $rating = $apr->param('rating');
+    my $entity = $r->param('entity');
+    my $id = $r->param('id');
+    my $rating = $r->param('rating');
 
     if (!MusicBrainz::Server::Validation::IsGUID($id) || 
         ($entity ne 'artist' && $entity ne 'release' && $entity ne 'track' && $entity ne 'label'))
@@ -282,16 +281,12 @@ sub process_user_input
 
 sub serve_from_db
 {
-    my ($c, $user_name, $entity_type, $entity_id) = @_;
+    my ($c, $entity_type, $entity_id) = @_;
 
     # Login to the main DB
     my $main = MusicBrainz->new;
     $main->Login();
     my $maindb = Sql->new($main->{dbh});
-
-    require MusicBrainz::Server::Editor;
-    my $user = MusicBrainz::Server::Editor->new($maindb->{dbh});
-    $user = $user->newFromName($user_name) or die "Cannot load user.\n";
 
     require MusicBrainz::Server::Artist;
     require MusicBrainz::Server::Release;
@@ -322,7 +317,7 @@ sub serve_from_db
     }
 
     my $rt = MusicBrainz::Server::Rating->new($maindb->{dbh});
-    my $rating = $rt->GetUserRatingForEntity($entity_type, $obj->id, $user->id);
+    my $rating = $rt->GetUserRatingForEntity($entity_type, $obj->id, $c->user->id);
 
     my $printer = sub {
         print_xml($rating);

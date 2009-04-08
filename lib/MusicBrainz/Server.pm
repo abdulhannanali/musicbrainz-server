@@ -69,8 +69,10 @@ __PACKAGE__->config->{'Plugin::Cache'}{backend} = {
 
 __PACKAGE__->config->{'Plugin::Authentication'} = {
     default_realm => 'moderators',
+    use_session => 0,
     realms => {
         moderators => {
+            use_session => 1,
             credential => {
                 class => 'Password',
                 password_field => 'password',

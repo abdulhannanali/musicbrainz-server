@@ -215,7 +215,7 @@ sub serve_from_db
 	
 	# the content type should be application/json, but
 	# Opera 8 can't handle that :(
-	$c->response->header("text/plain; charset=utf-8");
+	$c->response->content_type("text/plain; charset=utf-8");
 	$c->response->content_length(length($js));
 	$c->response->body($js); # unless $r->header_only;
 

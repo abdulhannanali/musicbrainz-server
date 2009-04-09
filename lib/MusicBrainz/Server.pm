@@ -82,7 +82,7 @@ __PACKAGE__->config->{'Plugin::Authentication'} = {
                 class => '+MusicBrainz::Server::Authentication::Store'
             }
         },
-        webservice => { 
+        "musicbrainz.org" => { 
             use_session => 0,
             credential => { 
                 class =>          'HTTP',

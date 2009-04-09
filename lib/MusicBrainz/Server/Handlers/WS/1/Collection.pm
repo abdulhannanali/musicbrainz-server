@@ -29,6 +29,7 @@ package MusicBrainz::Server::Handlers::WS::1::Collection;
 
 use HTTP::Status qw(RC_OK RC_NOT_FOUND RC_BAD_REQUEST RC_INTERNAL_SERVER_ERROR RC_FORBIDDEN RC_SERVICE_UNAVAILABLE);
 use MusicBrainz::Server::Collection;
+use MusicBrainz::Server::CollectionInfo;
 use MusicBrainz::Server::Handlers::WS::1::Common;
 
 sub handler
@@ -37,25 +38,17 @@ sub handler
     # POST http://server/ws/1/collection/?addalbums=<comma separated list of mbids>&removealbums=<comma separated list of mbids>
     my $c = shift;
     my $r = $c->req;
-    
-    my $printer;
-    
-    my %args = $r->args;
-    
-    my @addAlbums;
-    my @removeAlbums;
-    
-    if($r->method eq "POST")
-    {
-        # split into arrays
-        @addAlbums=split(/, |,/, $r->params->{'addAlbums'});
-        @removeAlbums=split(/, |,/, $r->params->{'removeAlbums'});
-    }
-    else
+   
+    my @addAlbums=split(/, |,/, $r->params->{'addAlbums'} || $r->params->{add} || '');
+    my @removeAlbums=split(/, |,/, $r->params->{'removeAlbums'} || $r->params->{remove} || '');
+    if ($r->method ne "POST" && (scalar(@addAlbums) || scalar(@removeAlbums)))
     {   
-        # get the albums from the POST/GET data
-        @addAlbums=split(/, |,/, $r->params->{addalbums});
-        @removeAlbums=split(/, |,/, $r->params->{removealbums});
+        return bad_req($c, "Only POST method is acceptable when adding or removing releases.")
+    }
+    my $type = $r->params->{type};
+    if (!defined($type) || $type ne 'xml')
+    {
+        return bad_req($c, "Invalid content type. Must be set to xml.");
     }
     
     require MusicBrainz;
@@ -83,6 +76,7 @@ sub handler
     
     
     # only allow one at a time. return a 400 error if both are used
+    my $printer;
     if(@addAlbums && @removeAlbums)
     {
         return bad_req($c, "Adding and removing releases must be done one at a time.");

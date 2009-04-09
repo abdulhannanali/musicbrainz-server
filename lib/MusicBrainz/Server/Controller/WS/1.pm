@@ -31,7 +31,8 @@ Handle artist related web service queries
 
 =cut
 
-sub artist : Path('artist')
+
+sub artist : Path('artist') :Minimal
 {
     my ($self, $c) = @_;
 
@@ -43,7 +44,7 @@ sub artist : Path('artist')
     # unless user data (tags, ratings) are requested
     if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
     {
-        $c->authenticate({}, "webservice");
+        $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     }
     MusicBrainz::Server::Handlers::WS::1::Artist::handler($c, $info);
 }
@@ -54,7 +55,7 @@ Handle release related web service queries
 
 =cut
 
-sub release : Path('release')
+sub release : Path('release') :Minimal
 {
     my ($self, $c) = @_;
 
@@ -66,7 +67,7 @@ sub release : Path('release')
     # unless user data (tags, ratings) are requested
     if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
     {
-        $c->authenticate({}, "webservice");
+        $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     }
     MusicBrainz::Server::Handlers::WS::1::Release::handler($c, $info);
 }
@@ -77,7 +78,7 @@ Handle track related web service queries
 
 =cut
 
-sub track : Path('track')
+sub track : Path('track') :Minimal
 {
     my ($self, $c) = @_;
 
@@ -89,7 +90,7 @@ sub track : Path('track')
     # unless user data (tags, ratings) are requested
     if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
     {
-        $c->authenticate({}, "webservice");
+        $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     }
     MusicBrainz::Server::Handlers::WS::1::Track::handler($c, $info);
 }
@@ -100,7 +101,7 @@ Handle label related web service queries
 
 =cut
 
-sub label : Path('label')
+sub label : Path('label') :Minimal
 {
     my ($self, $c) = @_;
 
@@ -112,7 +113,7 @@ sub label : Path('label')
     # unless user data (tags, ratings) are requested
     if ($c->req->method eq "GET" && (($info->{inc} & INC_USER_TAGS) || ($info->{inc} & INC_USER_RATINGS)))
     {
-        $c->authenticate({}, "webservice");
+        $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     }
     MusicBrainz::Server::Handlers::WS::1::Label::handler($c, $info);
 }
@@ -123,13 +124,13 @@ Handle tag related web service queries
 
 =cut
 
-sub tag : Path('tag')
+sub tag : Path('tag') :Minimal
 {
     my ($self, $c) = @_;
 
     if ($c->req->method eq "POST")
     {
-        $c->authenticate({}, "webservice");
+        $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     }
     MusicBrainz::Server::Handlers::WS::1::Tag::handler($c);
 }
@@ -140,10 +141,10 @@ Handle user related web service queries
 
 =cut
 
-sub user : Path('user')
+sub user : Path('user') :Minimal
 {
     my ($self, $c) = @_;
-    $c->authenticate({}, "webservice");
+    $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     MusicBrainz::Server::Handlers::WS::1::User::handler($c);
 }
 
@@ -153,11 +154,11 @@ Handle rating related web service queries
 
 =cut
 
-sub rating : Path('rating')
+sub rating : Path('rating') :Minimal
 {
     my ($self, $c) = @_;
 
-    $c->authenticate({}, "webservice");
+    $c->authenticate({ realm => 'musicbrainz.org'}, "musicbrainz.org");
     MusicBrainz::Server::Handlers::WS::1::Rating::handler($c);
 }
 
@@ -167,10 +168,10 @@ Handle collection related web service queries
 
 =cut
 
-sub collection : Path('collection')
+sub collection : Path('collection') :Minimal
 {
     my ($self, $c) = @_;
-    $c->authenticate({}, "webservice");
+    $c->authenticate({}, "musicbrainz.org");
     MusicBrainz::Server::Handlers::WS::1::Collection::handler($c);
 }
 

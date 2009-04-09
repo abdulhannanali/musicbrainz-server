@@ -331,7 +331,7 @@ sub xml_artist
     {
         xml_user_rating($ar->{dbh}, 'artist', $ar->id, $user);
     }
-    if (defined $info)
+    if (defined($info) && ($info->{type} != -1 || $info->{status} != -1)) 
     {
         my @albums = $ar->releases(!$info->{va}, 1, $info->{va});
         if (scalar(@albums) && ($info->{type} != -1 || $info->{status} != -1))

@@ -1,11 +1,14 @@
 #!/usr/bin/perl -w
 
+# This test module is far from complete because the tests are too brittle to really make it work.
+# It was useful for testing the port of the webservice, so I'll check it in for possible use later.
+
 use strict;
 use warnings;
 use LWP::UserAgent;
 use Data::Dumper;
 
-use Test::More tests => 1;
+use Test::More tests => 16;
 
 undef $/;
 
@@ -184,9 +187,7 @@ sub run_test
     }
 }
 
-run_test("http://musicbrainz.homeip.net:3000", $testdata->[scalar(@$testdata) - 1]);
-
-#foreach my $t (@{$testdata})
-#{
-#    run_test("http://musicbrainz.homeip.net:3000", $t);
-#}
+foreach my $t (@{$testdata})
+{
+    run_test("http://musicbrainz.homeip.net:3000", $t);
+}

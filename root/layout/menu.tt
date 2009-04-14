@@ -3,7 +3,7 @@
         [%- l('{doc|About}', {doc => doc_link('AboutMusicBrainz')}) -%]
         <ul>
             <li>
-                [%- l('{doc|About MusicBrainz}', {doc => doc_link('AboutMusicBrainz')}) -%]
+                [%- l('{doc|About MusicBrainz}', {doc => doc_link('About_MusicBrainz')}) -%]
             </li>
             <li>
                 [%- l('{doc|Mirrors}', {doc => doc_link('MirrorServer')}) -%]

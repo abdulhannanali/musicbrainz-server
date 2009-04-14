@@ -36,13 +36,13 @@ sub fetch_page
             success => 1,
             body    => $page,
             id      => $id,
+            version => $is_wiki_page ? $index->{$id} : ''
         };
     }
 
-    my $doc_url = sprintf ('http://%s/%s?action=ContentRev',
-                           DBDefs::WIKITRANS_SERVER, $id);
-
-    if ($is_wiki_page) { $doc_url .= $index->{id}; }
+    my $doc_url = "http://" . &DBDefs::WIKITRANS_SERVER . "/"
+                            . $id . "?action=render"
+                            . ($is_wiki_page ? ("&oldid=".$index->{$id}) : "");
 
     require LWP::UserAgent;
     my $ua = LWP::UserAgent->new(max_redirect => 0);
@@ -61,89 +61,90 @@ sub fetch_page
             return {
                 success => 0,
                 status  => $response->status_line,
-                page_id => $id,
+                id      => $id,
             };
         }
     }
     else
     {
         $page = $response->content;
-        if ($page =~ /<a id="top"><\/a>\s+<a id="bottom"><\/a>/s)
+        if ($page =~ /<div class="noarticletext">/s)
         {
             return {
                 success => 0,
                 status  => 404,
-                page_id => $id,
+                id      => $id,
             };
+        }
+        elsif ($page =~ /<span class="redirectText"><a href="http:\/\/.*?\/(.*?)"/)
+        {
+            return $self->fetch_page($1);
         }
         else
         {
             my $server      = DBDefs::WEB_SERVER;
             my $wiki_server = DBDefs::WIKITRANS_SERVER;
 
-            # Remove intertwingled links to non-existent pages.
-            $page =~ s/<a class="nonexistent" [^>]+>([^<]+)<\/a>/$1/g;
-
-            # Remove intertwingled links to non-existent pages (if nonexist_qm=1)
-			$page =~ s/<a class="nonexistent" [^>]+>\?<\/a>//g;
-
-			# Remove intertwingled links to non-existent pages (if nonexist_qm=0)
-			$page =~ s/<a class="nonexistent" [^>]+>([^<]+)<\/a>/$1/g;
-
-            $page =~ s[href="http:/(\w)]['href="http://' . $server . "/$1"]eg;
-
-            # Change main div id to be wiki_content
-            $page =~ s/id="content/id="wiki_content/ig;
+            # remove [edit] links
+            $page =~ s/\[.*?>edit<\/a>]//g;
 
             my $temp = "";
-            while (1)
+            while(1)
             {
-                if ($page =~ s/(.*?)<a(.*?)href="\/(.*?)"(.*?)>(.*?)<\/a>//s)
-                {
-                    my ($pre, $href, $rep, $post, $linktext) = ($1, $2, $3, $4, $5);
-                    
-                    # Distinguish between wikidocs and normal wiki pages.
-                    my $is_wiki_doc = exists($index->{$rep});
-                    my $css         = $is_wiki_doc ? "official" : "unofficial";
-                    my $title       = $is_wiki_doc ? "Wiki docs link" : "Wiki link";
-                    
-                    $temp .= qq!$pre<a$href class="$css" title="$title" href="http://$server/doc/$rep"$post>$linktext</a>!;
-                }
-                else
-                {
-                    $temp .= $page;
-                    last;
-                }
-			}
+                    if ($page =~ s=(.*?)<a(.*?)href\="http://$wiki_server/(.*?)"(.*?)>(.*?)</a>==s)
+                    {
+                            my ($text, $pre, $url, $post, $linktext) = ($1, $2, $3, $4, $5);
+
+                            # Is this a non-existant link?
+                            if ($url =~ /^\?title=(.*?)&amp;action=edit/)
+                            {
+                                    $temp .= "$text $linktext ";
+                                    next;
+                            }
+
+                            my $isWD = exists($index->{$url});
+                            my $css = $isWD ? "official" : "unofficial";
+                            my $title = $isWD ? "WikiDocs" : "Wiki";
+
+                            my $newpost = "";
+                            for(;;)
+                            {
+                                    if ($post =~ s/(\w+?)="(.*?)"//s)
+                                    {
+                                            my ($attr, $value) = ($1, $2);
+                                            if ($attr eq 'title')
+                                            {
+                                                    $newpost .= " title=\"$title: $2\"";
+                                            }
+                                    }
+                                    else
+                                    {
+                                            last;
+                                    }
+                            }
+                            $newpost .= " class=\"$css\""; 
+                            $temp .= "$text<a".$pre."href=\"http://$server/doc/$url\"$newpost>$linktext</a>";
+                    }
+                    else
+                    {
+                            last;
+                    }
+            }
+            $temp .= $page;
             $page = $temp;
 
-            # This fixes image links to point to the wiki
-            $page =~ s[src="/-/]['src="http://' . $wiki_server . "/-/$1"]eg;
+            # this fixes image links to point to the wiki
+            $page =~ s[src="/-/images][src="http://$wiki_server/-/images]g;
 
-            # Assume img src URLs which contain "AttachFile&amp;do=get" are attachments to the
-			# wiki page being transcluded.
-            # TODO : Does this strain the wiki server too much?
-            $page =~ s[<img src="([^"]*action=AttachFile&amp;do=get[^"]*)"][<img src="http://wiki.musicbrainz.org$1"]g;
-            $page =~ s[(<a href="http:\/\/(www\.)?musicbrainz.org.*?">)<img src="http:\/\/wiki.musicbrainz.org\/-\/musicbrainz\/img\/moin-www\.png".*?>][$1]g;
 
-            # Remove external links icons from links that point to mb.org
-            $page =~ s[(<a href="http:\/\/(www\.)?musicbrainz.org.*?">)<img src="http:\/\/wiki.musicbrainz.org\/-\/musicbrainz\/img\/moin-www\.png".*?>][$1]g;
+            # remove ugly ass border=1 from tables
+            $page =~ s/table border="1"/table/g;
 
-            # Move headers one level up
-            $page =~ s/<(\/?)h2/<$1h1/ig;
-            $page =~ s/<(\/?)h3/<$1h2/ig;
-            $page =~ s/<(\/?)h4/<$1h3/ig;
-            $page =~ s/<(\/?)h5/<$1h4/ig;
-
-            # Fix code blocks
-            $page =~ s/&lt;code&gt;/<code>/ig;
-            $page =~ s/&lt;\/code&gt;/<\/code>/ig;
-
-            # Obfuscate email addresses
+            # Obfuscate e-mail addresses
             $page =~ s/(\w+)\@(\w+)/$1&#x0040;$2/g;
             $page =~ s/mailto:/mailto&#x3a;/g;
 
-            # Expand placeholders which point to the current webserver [@WEB_SERVER@/someurl title]
+            # expand placeholders which point to the current webserver [@WEB_SERVER@/someurl title]
             $page =~ s/\[\@WEB_SERVER\@([^ ]*) ([^\]]*)\]/<img src="\/images\/edit.gif" alt="" \/><a href="$1">$2<\/a>/g;
 
             # Now store page in cache
@@ -151,7 +152,9 @@ sub fetch_page
 
             return {
                 success => 1,
-                body    => $page
+                body    => $page,
+                id      => $id,
+                version => $is_wiki_page ? $index->{$id} : ''
             };
         }
     }

@@ -1,4 +1,29 @@
-[% extra_js = "jquery/jquery-ui.js jquery/jquery.history_remote.pack.js wikidocs.js" %]
 [% WRAPPER "layout.tt" -%]
+[%- IF !page.version -%]
+    <div class="wikidocs_header">
+    [%- l("This page has not been reviewed by our documentation team.") -%]
+    (<a href="http://[%- wiki_server -%]/WikiDocs">[%- l('more info') -%]</a>)
+    </div>
+    <hr/>
+[%- END -%]
 [%- page.body -%]
-[%- END %]
+<hr/>
+[%- IF page.version -%]
+    <div class="wikidocs_footer">
+    [%SET version = page.version %]
+    [%- 
+        l("This {doclink1|wiki documentation page} is based on version {doclink2|$version} of the wiki page {doclink3|$title}", 
+            {
+                doclink1 => doc_link("WikiDocs"), 
+                doclink2 => wiki_history_link(wiki_server, page.id, page.version),
+                doclink3 => wiki_link(wiki_server, page.id)
+            } 
+        ) -%]
+    </div>
+
+[%- ELSE -%]
+    <div class="wikidocs_footer">
+    [%- l('This is a copy of wiki page') -%] <a href="http://[%- wiki_server -%]/[%- page.id -%]">[%- title -%]</a>. 
+    </div>
+[%- END -%]
+[%- END -%]

@@ -519,3 +519,14 @@ div.grippie {
     width:95%;
     height:20%;
 }
+
+/* Wiki docs */
+
+div.wikidocs_header {
+    font-size: x-small;
+    background-color: #ffc; 
+    color: #000;
+}
+div.wikidocs_footer {
+    font-size: x-small;
+}
